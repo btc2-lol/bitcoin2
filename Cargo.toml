@@ -1,0 +1,17 @@
+[package]
+name = "bitcoin2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "*"
+hex = "*"
+http-body-util = "*"
+ecdsa = {version="*", features=["signing"]}
+k256 = {version-= "0.13.3", features = ["ecdsa"]}
+tokio = { version = "1.0", features = ["full"] }
+base64 = "0.22.0"
+
+[dev-dependencies]
+rand_core = "*"
+tower = { version = "0.4", features = ["util"] }
