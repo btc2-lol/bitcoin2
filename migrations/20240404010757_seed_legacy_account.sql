@@ -1,0 +1,4 @@
+INSERT INTO accounts (address, balance) values (
+    '\x0000000000000000000000000000000000000000'::BYTEA,
+    19687500
+);

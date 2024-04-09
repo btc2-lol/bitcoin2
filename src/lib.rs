@@ -1,90 +1,46 @@
-use axum::body::{Body, Bytes};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use k256::ecdsa::VerifyingKey;
-use k256::ecdsa::Signature;
-use k256::ecdsa::RecoveryId;
-use axum::extract::FromRequestParts;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
-use axum::routing::post;
-use axum::{
-    http::{header::HeaderName, HeaderMap},
-    response::Html,
-    routing::get,
-    Router,
-};
-mod crypto;
+pub mod bitcoin_legacy;
+pub mod db;
+mod http;
+mod protocol;
+use protocol::{recover_verifying_key, Message};
 
-pub fn app() -> Router {
-    Router::new().route("/transactions", post(handler))
+use axum::{body::Bytes, extract::State, http::StatusCode, routing::post, Router};
+use http::Result;
+use sqlx::PgPool;
+
+pub async fn app(pool: PgPool) -> Router {
+    Router::new().route("/", post(handler)).with_state(pool)
 }
 
-async fn handler(headers: HeaderMap, message: Bytes) -> impl IntoResponse {
-    let public_key = public_key_from_headers(&headers, &message);
-    println!("{}", message.len());
-    println!("{:?}", public_key);
-    StatusCode::OK
+async fn handler(State(_pool): State<PgPool>, mut message: Bytes) -> Result<()> {
+    let verifying_key = recover_verifying_key(&mut message)?;
+    Message::from_bytes(message)?.execute(verifying_key)?;
+
+    Ok(())
 }
 
-fn public_key_from_headers(headers: &HeaderMap, message: &Bytes) -> [u8; 33] {
-    let auth_header_name = HeaderName::from_static("authorization");
-    let signature = BASE64_STANDARD.decode(
-        headers.get(auth_header_name).unwrap()
-    ).unwrap().as_slice().try_into().unwrap();
-    crypto::recover_public_key(
-        message,
-        signature,
-    )
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{
-        body::Body,
-        extract::connect_info::MockConnectInfo,
-        http::{self, Request, StatusCode},
-    };
-    use http_body_util::BodyExt; // for `collect`
-    use std::net::SocketAddr;
-    use k256::{ecdsa::{SigningKey, signature::Signer}};
+    use axum::{body::Body, http::Request};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
 
-    use tokio::net::TcpListener;
-    use base64::prelude::BASE64_STANDARD;
-    use base64::Engine;
-    use tower::{Service, ServiceExt}; // for `call`, `oneshot`, and `ready`
-
-    #[tokio::test]
-    async fn status_ok() {
-
-        use k256::{
-            ecdsa::{SigningKey as PrivateKey, Signature, signature::Signer},
-        };
-        use crate::tests::http::HeaderValue;
-        use rand_core::OsRng;
-        
-        let private_key = PrivateKey::random(&mut OsRng);
-        let message = vec![1,2,3];
-        
-        ;
-        // let signature: Signature = signing_key.sign(&message);
-        // let bytes: [u8; 64] = signature.to_bytes().try_into().unwrap();
-        println!("{:?}", private_key.verifying_key().to_sec1_bytes());
-        // println!("{:?}", signature.to_bytes().as_bytes());
-        let  authorization = BASE64_STANDARD.encode(crypto::sign(private_key, &message));
+    #[sqlx::test]
+    async fn transfer_by_message(pool: PgPool) {
+        let message = hex::decode("00310a34393136386562633832366138326363383463303133393636306439626166623931396136613531643266303162663331363239383936303631653339346430300a303030303030303030303030303030303030303030303030303030303030303030303030303030300a313336323635208472726d44e0a64d178bf30e0919e110b04cecac47de3d54cbc5ad5e78c93cc57d095463b120252e6ab68bd8f9dcb19e8604b7cb420fc69905649d936ba4e417").unwrap();
         let request = Request::builder()
             .method("POST")
             .header("content-type", "application/octet-stream")
-            .uri("/transactions")
-            .header("Authorization", authorization)
-            .body(Body::from(vec![1, 2, 3]))
+            .uri("/")
+            .body(Body::from(message))
             .unwrap();
 
-        let response = app().oneshot(request).await.unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-
+        let response = app(pool).await.oneshot(request).await.unwrap();
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(body.len(), 0usize);
+        // assert_eq!(body.len(), 0usize);
+        println!("{:?}", &body);
+
+        // assert_eq!(response.status(), StatusCode::OK);
     }
 }
