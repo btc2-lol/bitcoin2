@@ -1,7 +1,6 @@
 use dotenv::dotenv;
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
-use std::env;
-use std::net::Ipv4Addr;
+use std::{env, net::Ipv4Addr};
 
 static MIGRATOR: Migrator = sqlx::migrate!();
 macro_rules! account_id {

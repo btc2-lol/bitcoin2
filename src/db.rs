@@ -1,7 +1,21 @@
 use axum::http::StatusCode;
 use sqlx::{Executor, Postgres};
+macro_rules! account_id {
+    ($last_byte:expr) => {{
+        let mut array = [0u8; 20];
+        array[19] = $last_byte;
+        array
+    }};
+}
 
-async fn _transfer<E>(pool: E, from: [u8; 20], to: [u8; 20], amount: i64) -> Result<(), StatusCode>
+pub const LEGACY_ACCOUNT: [u8; 20] = account_id!(0);
+
+pub async fn transfer<E>(
+    pool: E,
+    from: [u8; 20],
+    to: [u8; 20],
+    amount: i64,
+) -> Result<(), StatusCode>
 where
     E: Executor<'static, Database = Postgres>,
 {
@@ -39,7 +53,7 @@ mod tests {
     #[sqlx::test]
     async fn transfer(pool: PgPool) -> sqlx::Result<()> {
         seed_account(&pool, ALICE, 1).await.unwrap();
-        super::_transfer(&pool, ALICE, BOB, 1).await.unwrap();
+        super::transfer(&pool, ALICE, BOB, 1).await.unwrap();
         assert_eq!(get_balance(&pool, BOB).await.unwrap(), 1);
 
         Ok(())

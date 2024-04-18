@@ -1,13 +1,11 @@
 use http::Result;
 pub mod legacy_transfer_by_message;
-use crate::bitcoin_legacy;
-use crate::http;
-use axum::body::Bytes;
-use axum::http::StatusCode;
-use k256::ecdsa::Signature;
-use k256::ecdsa::VerifyingKey;
+use crate::{bitcoin_legacy, http};
+use axum::{body::Bytes, http::StatusCode};
+use k256::ecdsa::{Signature, VerifyingKey};
 pub use legacy_transfer_by_message::*;
 use num_enum::TryFromPrimitive;
+use sqlx::PgPool;
 
 const SIGNATURE_LENGTH: usize = 65;
 
@@ -63,7 +61,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn from_bytes(bytes: Bytes) -> Result<Self> {
+    pub fn _from_bytes(bytes: Bytes) -> Result<Self> {
         Ok(match MessageType::from_bytes(&bytes)? {
             MessageType::LegacyTransferByMessage => {
                 Self::LegacyTransferByMessage(LegacyTransferByMessage::from_bytes(&bytes[1..])?)
@@ -71,9 +69,9 @@ impl Message {
         })
     }
 
-    pub fn execute(self, verifying_key: VerifyingKey) -> Result<()> {
+    pub fn execute(self, pool: PgPool, verifying_key: VerifyingKey) -> Result<()> {
         match self {
-            Self::LegacyTransferByMessage(message) => message.execute(verifying_key),
+            Self::LegacyTransferByMessage(message) => message.execute(pool, verifying_key),
         }
     }
 }

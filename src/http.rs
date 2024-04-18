@@ -1,6 +1,8 @@
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::response::Response;
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+#[derive(Debug, Clone)]
 pub struct Error(pub StatusCode, pub String);
 pub type Result<T> = core::result::Result<T, Error>;
 

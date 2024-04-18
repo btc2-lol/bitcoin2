@@ -1,34 +1,38 @@
-use crate::bitcoin_legacy::utxos::{self, Vout};
-use crate::http;
+use crate::{
+    bitcoin_legacy::utxos::{self, Vout},
+    http,
+};
 use axum::http::StatusCode;
 use http::Result;
 use k256::ecdsa::VerifyingKey;
+use sqlx::PgPool;
 use std::{io, io::BufRead};
 
 #[derive(Default, Debug)]
 pub struct LegacyTransferByMessage {
     pub vouts: Vec<Vout>,
-    pub _to: [u8; 20],
-    pub amount: u64,
+    pub to: [u8; 20],
+    pub amount: i64,
 }
 
 impl LegacyTransferByMessage {
-    pub fn execute(&self, verifying_key: VerifyingKey) -> Result<()> {
+    pub fn _execute(&self, _pool: PgPool, verifying_key: VerifyingKey) -> Result<()> {
         let validated_amount = self
             .vouts
             .iter()
             .map(|utxo| utxos::validate(utxo, verifying_key))
-            .sum::<Result<u64>>();
+            .sum::<Result<i64>>();
         if self.amount == validated_amount? {
+            // db::transfer(&pool, LEGACY_ACCOUNT, self.to, self.amount);
             Ok(())
         } else {
-            Err(http::err("unauthorized amount"))
+            Err(http::err("Unauthorized amount"))
         }
     }
 }
 
 impl LegacyTransferByMessage {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+    pub fn _from_bytes(bytes: &[u8]) -> Result<Self> {
         let cursor = io::Cursor::new(bytes);
         let buffered = io::BufReader::new(cursor);
         let mut lines = buffered.lines();
@@ -72,10 +76,6 @@ impl LegacyTransferByMessage {
             ))??
             .parse()?;
 
-        Ok(Self {
-            vouts,
-            _to: to,
-            amount,
-        })
+        Ok(Self { vouts, to, amount })
     }
 }
