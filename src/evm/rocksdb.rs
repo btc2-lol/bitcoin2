@@ -125,6 +125,10 @@ impl<ExtDB: DatabaseRef> Database for RocksDb<ExtDB> {
             }
         }
     }
+
+    fn transfer(&mut self, _from: Address, _to: Address, _value: U256) {
+        unimplemented!()
+    }
 }
 
 impl<ExtDB: DatabaseRef> DatabaseRef for RocksDb<ExtDB> {

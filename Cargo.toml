@@ -23,7 +23,7 @@ ethers-providers = "*"
 #rusqlite = "0.31.0"
 sha2 = "0.10.8"
 sqlx = {git = "https://github.com/launchbadge/sqlx", default_features = false, features = ["postgres", "sqlite", "runtime-tokio", "macros", "migrate"] }
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.37", features = ["full", "time"] }
 rocksdb = "0.22.0"
 bincode = { version = "2.0.0-rc.3", features= ["derive"]}
 tempfile = "3.10.1"
@@ -38,6 +38,9 @@ thiserror = "1.0.58"
 borsh = { version = "*", features=["derive"] }
 borsh-derive = { version = "1.0.0-alpha.6" }
 sha3 = "0.10.8"
+num-bigint = "0.4.4"
+num-traits = "0.2.18"
+serde_yaml = "0.9.34"
 
 [dev-dependencies]
 alloy-json-abi = "0.7.0"

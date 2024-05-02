@@ -1,6 +1,13 @@
+use bitcoin2::{block_producer, evm::Evm};
 use dotenv::dotenv;
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
-use std::{env, net::Ipv4Addr};
+use std::{
+    env,
+    net::Ipv4Addr,
+};
+use tokio::{
+    spawn,
+};
 
 static MIGRATOR: Migrator = sqlx::migrate!();
 macro_rules! account_id {
@@ -20,8 +27,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let port = env::var("PORT").and_then(|port| Ok(port.parse().unwrap_or(3000)))?;
     let pool = PgPoolOptions::new().connect(&database_url).await?;
     MIGRATOR.run(&pool).await?;
+    spawn({
+        let pool = pool.clone();
+        async move {
+            block_producer::start(pool.clone()).await.unwrap();
+        }
+    });
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::new(127, 0, 0, 1), port)).await?;
-    axum::serve(listener, bitcoin2::app(pool).await).await?;
+    let evm: Evm = Evm::new(pool);
+
+    println!("about to serve");
+    axum::serve(listener, bitcoin2::app(evm).await).await?;
 
     Ok(())
 }

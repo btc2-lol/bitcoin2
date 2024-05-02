@@ -1,15 +1,40 @@
 CREATE TABLE accounts(
-  id serial PRIMARY KEY, 
+  id BIGSERIAL PRIMARY KEY, 
   address BYTEA UNIQUE CHECK (octet_length(address) = 20),
   balance BIGINT NOT NULL DEFAULT 0
 );
 
-CREATE TABLE entries(
-  id serial PRIMARY KEY, 
-  amount BIGINT NOT NULL CHECK (amount > 0), 
-  creditor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
-  debtor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT
+CREATE TABLE blocks(
+  number BIGSERIAL PRIMARY KEY,
+  hash BYTEA UNIQUE CHECK (octet_length(hash) = 32),
+  hash_state BYTEA,
+  timestamp TIMESTAMP
 );
+
+CREATE TABLE transactions(
+  id BIGSERIAL PRIMARY KEY, 
+  account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+  hash BYTEA UNIQUE CHECK (octet_length(hash) = 32),
+  raw BYTEA,
+  block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT
+);
+
+CREATE TABLE entries(
+  id BIGSERIAL PRIMARY KEY, 
+  transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
+  amount BIGINT NOT NULL CHECK (amount > 0), 
+  creditor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
+  debtor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE spent_legacy_outputs(
+  id BIGSERIAL PRIMARY KEY, 
+  transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
+  hash BYTEA UNIQUE CHECK (octet_length(hash) = 32),
+  index SMALLINT,
+  UNIQUE(hash, index)
+);
+
 
 CREATE 
 OR REPLACE FUNCTION validate_entry() RETURNS TRIGGER AS $$ BEGIN
@@ -34,12 +59,12 @@ CREATE TRIGGER update_balances_after_insert
 AFTER 
   INSERT ON entries FOR EACH ROW EXECUTE FUNCTION update_account_balances();
 
-CREATE OR REPLACE PROCEDURE transfer(creditor_account BYTEA, debtor_account BYTEA, transfer_amount BIGINT)
+CREATE OR REPLACE PROCEDURE transfer(transaction_id BIGINT, creditor_account BYTEA, debtor_account BYTEA, transfer_amount BIGINT)
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    creditor_id INTEGER;
-    debtor_id INTEGER;
+    creditor_id BIGINT;
+    debtor_id BIGINT;
 BEGIN
     SELECT id INTO creditor_id FROM accounts WHERE address = creditor_account;
 
@@ -54,7 +79,24 @@ BEGIN
     END IF;
 
 
-    INSERT INTO entries (creditor_id, debtor_id, amount)
-    VALUES (creditor_id, debtor_id, transfer_amount);
+    INSERT INTO entries (transaction_id, creditor_id, debtor_id, amount)
+    VALUES (transaction_id, creditor_id, debtor_id, transfer_amount);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION select_or_insert_account(new_address BYTEA)
+RETURNS BIGINT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    account_id BIGINT;
+BEGIN
+    SELECT id INTO account_id FROM accounts WHERE address = new_address;
+
+    IF account_id IS NULL THEN
+        INSERT INTO accounts (address) VALUES (new_address) RETURNING id INTO account_id;
+    END IF;
+
+    RETURN account_id;
 END;
 $$;

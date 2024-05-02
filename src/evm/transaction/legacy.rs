@@ -1,7 +1,7 @@
+use super::signature::Signature;
 use crate::evm::{scale_down, scale_up, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
 use k256::{ecdsa, ecdsa::RecoveryId};
-use super::signature::Signature;
 use reth_primitives::{Address, TransactionKind, TransactionSigned, TxType};
 
 #[derive(thiserror::Error, Debug)]
@@ -23,8 +23,6 @@ pub struct Transaction {
     pub input: Vec<u8>,
 }
 
-
-
 impl From<&reth_primitives::Signature> for Signature {
     fn from(signature: &reth_primitives::Signature) -> Self {
         Self(
@@ -38,8 +36,8 @@ impl From<&reth_primitives::Signature> for Signature {
 }
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 pub struct SignedTransaction {
-    transaction: Transaction,
-    signature: Signature,
+    pub transaction: Transaction,
+    pub signature: Signature,
 }
 impl SignedTransaction {
     pub fn decode(mut bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
@@ -48,7 +46,7 @@ impl SignedTransaction {
             .try_into()?)
     }
 
-    pub fn signer(self) -> [u8; 20] {
+    pub fn signer(&self) -> [u8; 20] {
         TransactionSigned::try_from(self)
             .unwrap()
             .recover_signer()
@@ -57,13 +55,38 @@ impl SignedTransaction {
             .try_into()
             .unwrap()
     }
+
+    pub fn is_transfer(&self) -> bool {
+        true
+    }
+
+    pub fn value(&self) -> i64 {
+        scale_down(TransactionSigned::try_from(self).unwrap().value())
+    }
+    pub fn to(&self) -> [u8; 20] {
+        TransactionSigned::try_from(self)
+            .unwrap()
+            .transaction
+            .to()
+            .unwrap()
+            .0
+            .try_into()
+            .unwrap()
+    }
+
+    pub fn hash(&self) -> [u8; 32] {
+        TransactionSigned::try_from(self)
+            .unwrap()
+            .signature_hash()
+            .0
+            .try_into()
+            .unwrap()
+    }
 }
 
-impl TryFrom<SignedTransaction> for reth_primitives::TransactionSigned {
+impl TryFrom<&SignedTransaction> for reth_primitives::TransactionSigned {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(
-        signed_transaction: SignedTransaction,
-    ) -> std::result::Result<Self, <Self as TryFrom<SignedTransaction>>::Error> {
+    fn try_from(signed_transaction: &SignedTransaction) -> std::result::Result<Self, Self::Error> {
         let SignedTransaction {
             transaction,
             signature,
@@ -86,7 +109,7 @@ impl TryFrom<SignedTransaction> for reth_primitives::TransactionSigned {
                 gas_price: transaction.gas_price,
                 to,
                 value: scale_up(transaction.value),
-                input: transaction.input.into(),
+                input: transaction.input.clone().into(),
                 nonce: transaction.nonce.try_into()?,
             }),
             signature: reth_primitives::Signature {

@@ -1,7 +1,6 @@
 mod sha256d;
 pub mod utxos;
 
-use crate::StatusCode;
 use digest::Digest;
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use sha256d::Sha256d;
@@ -19,17 +18,19 @@ const MESSAGE_MAGIC: &'static str = "Bitcoin Signed Message:\n";
 pub fn recover_from_msg(
     message: Vec<u8>,
     signature: [u8; 65],
-) -> Result<VerifyingKey, crate::http::Error> {
+) -> Result<VerifyingKey, crate::error::Error> {
     let recovery_byte = decode_recovery_id_byte(signature[0]);
-    let recovery_id = RecoveryId::from_byte(recovery_byte)
-        .ok_or(crate::http::Error(StatusCode::BAD_REQUEST, "".to_string()))?;
+    let recovery_id =
+        RecoveryId::from_byte(recovery_byte).ok_or(crate::error::Error::BadRequest)?;
     let digest = signed_message_digest(message.clone().into());
 
     Ok(VerifyingKey::recover_from_digest(
         digest,
-        &Signature::from_bytes(signature[1..].into())?,
+        &Signature::from_bytes(signature[1..].into())
+            .map_err(|e| crate::error::Error::Error(e.to_string()))?,
         recovery_id,
-    )?)
+    )
+    .map_err(|e| crate::error::Error::Error(e.to_string()))?)
 }
 
 fn signed_message_digest(message: Vec<u8>) -> Sha256d {

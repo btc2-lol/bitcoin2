@@ -7,4 +7,6 @@ pragma solidity ^0.8.24;
 contract System {
     function validateLastBlock() public {
     }
+    function upgradeByMessage(string calldata message, bytes calldata signature) public {
+    }
 }
