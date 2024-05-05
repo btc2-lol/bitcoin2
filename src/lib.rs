@@ -4,7 +4,6 @@ pub mod db;
 mod error;
 pub mod evm;
 mod rpc;
-// mod protocol;
 
 use crate::evm::Evm;
 use axum::{
@@ -13,10 +12,7 @@ use axum::{
     Router,
 };
 
-use rpc::handler;
 use tower_http::cors::{Any, CorsLayer};
-
-// use sqlx::PgPool;
 
 pub async fn app(evm: Evm) -> Router {
     let cors = CorsLayer::new()
@@ -25,7 +21,7 @@ pub async fn app(evm: Evm) -> Router {
         .allow_methods(vec![Method::POST]);
 
     Router::new()
-        .route("/", post(handler))
+        .route("/", post(rpc::handler))
         .layer(cors)
         .with_state(evm)
 }
@@ -33,20 +29,13 @@ pub async fn app(evm: Evm) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        db::get_balance,
-        evm::{Evm},
-    };
+    use crate::{db::get_balance, evm::Evm};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
-    
-    
     use serde_json::json;
     use sqlx::PgPool;
-    
-    
     use tower::ServiceExt;
 
     #[sqlx::test]
@@ -120,7 +109,4 @@ mod tests {
         );
         Ok(())
     }
-    //     let body = response.into_body().collect().await.unwrap().to_bytes();
-    //     assert_eq!(body.len(), 0usize);
-    // }
 }

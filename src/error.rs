@@ -39,3 +39,15 @@ impl From<std::io::Error> for Error {
         Error::IoError(err.to_string())
     }
 }
+
+impl From<Vec<u8>> for Error {
+    fn from(err: Vec<u8>) -> Self {
+        Error::Error(hex::encode(err))
+    }
+}
+
+impl From<hex::FromHexError> for Error {
+    fn from(err: hex::FromHexError) -> Self {
+        Error::Error(err.to_string())
+    }
+}

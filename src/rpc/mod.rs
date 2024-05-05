@@ -1,15 +1,15 @@
 mod error;
-
-use crate::evm;
-
-use crate::evm::{scale_up, Evm};
+use crate::{
+    evm,
+    evm::{scale_up, Evm},
+};
 use axum::{extract, extract::State, response::IntoResponse, Json};
+use error::*;
 use num_bigint::BigUint;
 use num_traits::{ToPrimitive, Zero};
 use reth_primitives::U256;
 use serde_json::{json, Value};
 
-use error::*;
 #[derive(serde::Deserialize, Debug)]
 pub struct JsonRpcRequest {
     id: Value,
@@ -94,7 +94,7 @@ impl IntoJson for U256 {
         .into()
     }
 }
-//
+
 pub async fn handler(
     State(evm): State<Evm>,
     extract::Json(request): extract::Json<JsonRpcRequest>,
@@ -113,6 +113,7 @@ pub async fn handler(
         "eth_getTransactionCount" => Ok(get_transaction_count(evm, &request.params)
             .await
             .into_json()),
+        "eth_getTransactionByHash" => Ok(get_transaction_by_hash(&request.params).into_json()),
         "eth_getTransactionReceipt" => Ok(get_transaction_receipt(&request.params).into_json()),
         "eth_sendRawTransaction" => {
             Ok(send_raw_transaction(evm, &request.params).await.into_json())
@@ -185,6 +186,20 @@ pub fn encode_amount(amount: BigUint) -> Value {
 
 pub fn encode_bytes(bytes: &[u8]) -> Value {
     json!(format!("0x{}", hex::encode(bytes)))
+}
+
+pub fn get_transaction_by_hash(params: &Vec<Value>) -> impl IntoJson {
+    json!({
+      "blockHash":"0x0000000000000000000000000000000000000000000000000000000000000001",
+      "blockNumber":"0x1",
+      "cumulativeGasUsed": "0x0",
+      "transactionIndex": "0x0",
+      "effectiveGasPrice": "0x0",
+      "transactionHash": params[0],
+      "status":"0x1",
+      "logs": [],
+      "gasUsed":"0x0",
+    })
 }
 
 pub fn get_transaction_receipt(params: &Vec<Value>) -> impl IntoJson {

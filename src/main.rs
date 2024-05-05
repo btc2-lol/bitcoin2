@@ -1,15 +1,11 @@
 use bitcoin2::{block_producer, evm::Evm};
 use dotenv::dotenv;
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
-use std::{
-    env,
-    net::Ipv4Addr,
-};
-use tokio::{
-    spawn,
-};
+use std::{env, net::Ipv4Addr};
+use tokio::spawn;
 
 static MIGRATOR: Migrator = sqlx::migrate!();
+
 macro_rules! account_id {
     ($last_byte:expr) => {{
         let mut array = [0u8; 20];
@@ -36,7 +32,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::new(127, 0, 0, 1), port)).await?;
     let evm: Evm = Evm::new(pool);
 
-    println!("about to serve");
     axum::serve(listener, bitcoin2::app(evm).await).await?;
 
     Ok(())

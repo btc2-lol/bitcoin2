@@ -1,8 +1,12 @@
-use crate::{db::get_last_block_timestamp, error::Result};
-use crate::{db::get_transactions_by_block_number, evm::SignedTransaction};
-use crate::db::update_transactions_block_number;
-use sha2::Sha256;
+use crate::{
+    db::{
+        get_last_block_timestamp, get_transaction_hashes, get_transactions_by_block_number,
+        insert_block, update_transactions_block_number,
+    },
+    error::Result,
+};
 use digest::Digest;
+use sha2::Sha256;
 use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
@@ -21,33 +25,30 @@ pub async fn start(pool: PgPool) -> Result<()> {
 
     loop {
         ticker.tick().await;
-        let proposed_transactions = get_transactions_by_block_number(&pool, None).await?;
-        if proposed_transactions.len() > 0 {
-            add_block(pool.clone(), proposed_transactions).await;
-        }
+        add_block(pool.clone()).await?;
     }
-
-    Ok(())
 }
 
-async fn add_block(pool: PgPool, signed_transactions: Vec<(i64, SignedTransaction)>) -> Result<()> {
-    // let proposed_transactions = get_transactions_by_block_number(&pool, None);
-    println!("{:?}", signed_transactions);
-
+async fn add_block(pool: PgPool) -> Result<()> {
     let mut tx = pool.begin().await?;
-    let transaction_ids = signed_transactions.iter().map(|t| t.0 ).collect();
-    let mut hasher = Sha256::new();
-
-    for signed_transaction in signed_transactions.iter() {
-        hasher.update(&borsh::to_vec(signed_transaction)?)
-    };
-    let result = hasher.finalize();
-
-
-    update_transactions_block_number(&mut *tx, transaction_ids, 0).await;
+    let proposed_transactions = get_transactions_by_block_number(&mut *tx, None).await?;
+    if proposed_transactions.len() == 0 {
+        return Ok(());
+    }
+    let transaction_ids: Vec<i64> = proposed_transactions.iter().map(|t| t.0).collect();
+    let transactions_hashes = get_transaction_hashes(&mut *tx).await?;
+    let block_number = insert_block(&mut *tx, hash(transactions_hashes)).await?;
+    update_transactions_block_number(&mut *tx, transaction_ids, block_number).await?;
     Ok(())
 }
 
+fn hash(hashes: Vec<[u8; 32]>) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for hash in hashes.iter() {
+        hasher.update(&hash)
+    }
+    hasher.finalize().into()
+}
 fn unix_timestamp_to_instant(unix_timestamp: u64) -> Instant {
     match SystemTime::now()
         .duration_since(UNIX_EPOCH + std::time::Duration::from_secs(unix_timestamp))
@@ -59,10 +60,9 @@ fn unix_timestamp_to_instant(unix_timestamp: u64) -> Instant {
 #[cfg(test)]
 mod tests {
     use crate::{
-        block_producer::SignedTransaction,
-        db::{get_or_insert_account_id, insert_transaction},
+        db::{get_or_insert_account_id, get_transactions_by_block_number, insert_transaction},
+        evm::transaction::SignedTransaction,
     };
-    use crate::db::get_transactions_by_block_number;
     use sqlx::PgPool;
 
     #[sqlx::test]
@@ -71,11 +71,11 @@ mod tests {
         let account_id = get_or_insert_account_id(&pool, signed_transaction.signer())
             .await
             .unwrap();
-        insert_transaction(&pool, &signed_transaction, account_id).await.unwrap();
-        let proposed_transactions = get_transactions_by_block_number(&pool, None).await.unwrap();
-        super::add_block(pool, proposed_transactions)
+        insert_transaction(&pool, &signed_transaction, account_id)
             .await
             .unwrap();
+        let _proposed_transactions = get_transactions_by_block_number(&pool, None).await.unwrap();
+        super::add_block(pool).await.unwrap();
         Ok(())
     }
 }

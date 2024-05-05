@@ -148,15 +148,9 @@ pub fn scale_up(n: i64) -> U256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
-    use revm::{
-        StateBuilder,
-    };
-    use sqlx::{PgPool};
-    
-    
-    
+
+    use revm::StateBuilder;
+    use sqlx::PgPool;
 
     #[sqlx::test]
     async fn transfer(pool: PgPool) -> sqlx::Result<()> {

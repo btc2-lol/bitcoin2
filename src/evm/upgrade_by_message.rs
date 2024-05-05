@@ -1,11 +1,7 @@
-use crate::bitcoin_legacy;
+use crate::{bitcoin_legacy, bitcoin_legacy::utxos, error::Result};
 use ethers_core::abi::ParamType;
-
-use crate::error::Result;
 use k256::ecdsa::VerifyingKey;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
-
-use crate::bitcoin_legacy::utxos;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct UpgradeByMessage {
@@ -86,22 +82,4 @@ impl UpgradeByMessage {
             .sum::<Result<i64>>()
             .map_err(|e| crate::error::Error::Error(e.to_string()))
     }
-
-    // pub async fn execute(
-    //     self,
-    //     pool: Pool<Postgres>,
-    //     signed_transaction: &SignedTransaction,
-    //     amount: i64,
-    // ) -> Result<()> {
-    //     upgrade(
-    //         &pool,
-    //         1,
-    //         signed_transaction.hash(),
-    //         self.inputs,
-    //         signed_transaction.signer(),
-    //         amount,
-    //     )
-    //     .await
-    //     .map_err(|e| crate::error::Error::Error(e.to_string()))
-    // }
 }

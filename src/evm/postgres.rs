@@ -8,11 +8,6 @@ use sqlx::PgPool;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PgDb {
-    // pub accounts: HashMap<Address, DbAccount>,
-    // pub contracts: HashMap<B256, Bytecode>,
-    // pub logs: Vec<Log>,
-    // pub block_hashes: HashMap<U256, B256>,
-    // pub read_only_db: ExtDB,
     pub pool: PgPool,
 }
 
