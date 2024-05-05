@@ -1,4 +1,6 @@
 use axum::response::{IntoResponse, Response};
+use serde::ser::StdError;
+use std::convert::Infallible;
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
@@ -11,7 +13,13 @@ pub enum Error {
     #[error("{0}")]
     IoError(String),
     #[error("{0}")]
+    ParseError(String),
+    #[error("{0}")]
     SqlxError(String),
+    #[error("{0}")]
+    UnsupportedMethod(String),
+    #[error("InvalidSignature")]
+    InvalidSignature,
     #[error("Bad Request")]
     BadRequest,
 }
@@ -48,6 +56,24 @@ impl From<Vec<u8>> for Error {
 
 impl From<hex::FromHexError> for Error {
     fn from(err: hex::FromHexError) -> Self {
+        Error::Error(err.to_string())
+    }
+}
+
+impl From<Infallible> for Error {
+    fn from(err: Infallible) -> Self {
+        Error::Error(err.to_string())
+    }
+}
+
+impl From<alloy_rlp::Error> for Error {
+    fn from(err: alloy_rlp::Error) -> Self {
+        Error::Error(err.to_string())
+    }
+}
+
+impl From<std::boxed::Box<dyn StdError>> for Error {
+    fn from(err: std::boxed::Box<dyn StdError>) -> Self {
         Error::Error(err.to_string())
     }
 }

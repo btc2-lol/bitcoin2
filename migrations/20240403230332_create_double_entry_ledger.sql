@@ -14,8 +14,12 @@ CREATE TABLE blocks(
 CREATE TABLE transactions(
   id BIGSERIAL PRIMARY KEY, 
   account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-  hash BYTEA UNIQUE CHECK (octet_length(hash) = 32),
-  raw BYTEA,
+  nonce BIGINT NOT NULL,
+  gas_price BIGINT NOT NULL,
+  _to BYTEA UNIQUE CHECK (octet_length(_to) = 20),
+  value BIGINT NOT NULL,
+  input BYTEA, 
+  signature BYTEA, 
   block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT
 );
 

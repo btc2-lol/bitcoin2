@@ -1,5 +1,6 @@
 pub mod bitcoin_legacy;
 pub mod block_producer;
+pub mod constants;
 pub mod db;
 mod error;
 pub mod evm;
@@ -61,11 +62,14 @@ mod tests {
                 &pool,
                 hex_lit::hex!("f204EE5596CAbc6Ec60e5e92Fd412EA7f856b625").into()
             )
-            .await?,
+            .await
+            .unwrap(),
             136265
         );
+
         Ok(())
     }
+
     #[sqlx::test]
     async fn transfer(pool: PgPool) -> sqlx::Result<()> {
         let evm: Evm = Evm::new(pool.clone());
@@ -96,7 +100,8 @@ mod tests {
                 &pool,
                 hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into()
             )
-            .await?,
+            .await
+            .unwrap(),
             50000000
         );
         assert_eq!(
@@ -104,9 +109,53 @@ mod tests {
                 &pool,
                 hex_lit::hex!("3073ac44aA1b95f2fe71Bb2eb36b9CE27892F8ee").into()
             )
-            .await?,
+            .await
+            .unwrap(),
             50000000
         );
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn get_transactions(pool: PgPool) -> sqlx::Result<()> {
+        let evm: Evm = Evm::new(pool.clone());
+        evm.deposit(
+            hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
+            100000000,
+        )
+        .await;
+
+        let message = json!({
+                "jsonrpc": "2.0",
+                "method": "eth_sendRawTransaction",
+                "params": ["0xf8690180825208943073ac44aa1b95f2fe71bb2eb36b9ce27892f8ee8806f05b59d3b20000808201b9a0d95066012c1af3689ac24030b965a81211b506022d4db117bf90b4a22ccaf981a03c818c75f0634ee921cbcb290371c5e14e76768db4f18900753dbcce651978eb"],
+                "id":1
+        });
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/")
+            .body(Body::from(message.to_string()))
+            .unwrap();
+
+        let _response = app(evm.clone()).await.oneshot(request).await.unwrap();
+        let message = json!({
+            "jsonrpc": "2.0",
+            "method": "btc2_getTransactions",
+            "id": null,
+            "params": [
+                "0xf204ee5596cabc6ec60e5e92fd412ea7f856b625"
+            ]
+        });
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/")
+            .body(Body::from(message.to_string()))
+            .unwrap();
+        let response = app(evm).await.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
         Ok(())
     }
 }

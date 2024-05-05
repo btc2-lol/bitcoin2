@@ -41,10 +41,6 @@ impl Database for PgDb {
     fn block_hash(&mut self, _number: U256) -> Result<B256, Self::Error> {
         unimplemented!()
     }
-
-    fn transfer(&mut self, _from: Address, _to: Address, _value: U256) {
-        unimplemented!()
-    }
 }
 
 impl DatabaseRef for PgDb {

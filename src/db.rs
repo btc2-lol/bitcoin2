@@ -1,9 +1,11 @@
 use crate::{
-    error::Result,
-    evm::{upgrade_by_message::Outpoint, SignedTransaction},
+    constants::{CHAIN_ID, DEFAULT_GAS_LIMIT},
+    error::{Error, Result},
+    evm::{scale_down, scale_up, upgrade_by_message::Outpoint, TransactionSigned},
 };
-
-use sqlx::{query, Executor, Postgres, Row};
+use reth_primitives::{Address, Signature, TxKind, TxLegacy};
+pub use sqlx::FromRow;
+use sqlx::{postgres::PgRow, query, query_as, Executor, Postgres, Row};
 
 const LAST_LEGACY_BLOCK_TIMESTAMP: i64 = 1713557133;
 pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 83999;
@@ -25,11 +27,18 @@ pub struct Transaction<'a> {
 impl Transaction<'_> {
     pub async fn new(
         pool: &sqlx::Pool<Postgres>,
-        signed_transaction: &SignedTransaction,
+        signed_transaction: &TransactionSigned,
     ) -> Result<Self> {
         let mut inner = pool.begin().await?;
 
-        let account_id = get_or_insert_account_id(&mut *inner, signed_transaction.signer()).await?;
+        let account_id = get_or_insert_account_id(
+            &mut *inner,
+            signed_transaction
+                .recover_signer()
+                .map(|signer| -> Result<[u8; 20]> { signer.try_into().map_err(Error::from) })
+                .ok_or(Error::InvalidSignature)??,
+        )
+        .await?;
         let transaction_id =
             insert_transaction(&mut *inner, signed_transaction, account_id).await?;
         Ok(Self {
@@ -45,12 +54,17 @@ impl Transaction<'_> {
         signer: [u8; 20],
         amount: i64,
     ) -> Result<()> {
-        let _account_id = get_or_insert_account_id(&mut *self.inner, signer).await?;
-
         for input in inputs {
             self.insert_spent_legacy_output(input).await?
         }
         self.transfer(LEGACY_ACCOUNT, signer, amount).await
+    }
+
+    pub fn id_as_hash(&self) -> [u8; 32] {
+        let mut array = [0u8; 32];
+        array[24..].copy_from_slice(&self.transaction_id.to_be_bytes());
+
+        array
     }
 
     pub async fn insert_spent_legacy_output(&mut self, vout: Outpoint) -> Result<()> {
@@ -64,9 +78,6 @@ impl Transaction<'_> {
     }
 
     pub async fn transfer(&mut self, from: [u8; 20], to: [u8; 20], amount: i64) -> Result<()> {
-        println!("{:?}", from);
-        println!("{:?}", to);
-        println!("{:?}", amount);
         query("CALL transfer ($1, $2, $3, $4)")
             .bind(self.transaction_id)
             .bind(from)
@@ -115,11 +126,15 @@ pub async fn get_transaction_hashes<'a, E>(pool: E) -> Result<Vec<[u8; 32]>>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    let balance = sqlx::query_as::<_, (Vec<[u8; 32]>,)>("select hash(raw) from transactions")
-        .fetch_one(pool)
+    let hashes = query_as("select transactions.* from transactions")
+        .fetch_all(pool)
         .await?
-        .0;
-    Ok(balance)
+        .into_iter()
+        .map(|signed_transaction: TransactionSignedRow| {
+            signed_transaction.1.hash().to_vec().try_into().unwrap()
+        })
+        .collect::<Vec<[u8; 32]>>();
+    Ok(hashes)
 }
 
 pub async fn get_balance<E>(pool: E, address: [u8; 20]) -> Result<i64>
@@ -137,53 +152,71 @@ where
 pub async fn get_transactions_by_block_number<'a, E>(
     pool: E,
     block_number: Option<i64>,
-) -> Result<Vec<(i64, SignedTransaction)>>
+) -> Result<Vec<TransactionSignedRow>>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    let transacions_bytes: Vec<(i64, Vec<u8>)> =
-        query("select id, raw from transactions where block_number = $1")
+    Ok(
+        query_as("select * from transactions where block_number = $1")
             .bind(block_number)
             .fetch_all(pool)
-            .await?
-            .into_iter()
-            .map(|result| (result.get(0), result.get::<Vec<u8>, _>(1)))
-            .collect::<Vec<(i64, Vec<u8>)>>();
-    Ok(transacions_bytes
-        .into_iter()
-        .map(|data| {
-            SignedTransaction::decode(&data.1)
-                .map_err(|e| crate::error::Error::Error(e.to_string()))
-                .map(|t| (data.0, t))
-        })
-        .collect::<Result<Vec<(i64, SignedTransaction)>>>()
-        .map_err(|e| crate::error::Error::Error(e.to_string()))?)
+            .await?,
+    )
+}
+
+pub struct TransactionSignedRow(pub i64, pub TransactionSigned);
+impl FromRow<'_, PgRow> for TransactionSignedRow {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let to = if let Some(to) = row.get::<Option<Vec<u8>>, _>("_to") {
+            TxKind::Call(Address::new(to.try_into().unwrap()))
+        } else {
+            TxKind::Create
+        };
+        let signature_bytes = row.get::<Vec<u8>, _>("signature");
+        let signature = Signature::decode(&mut &signature_bytes[..]).unwrap();
+
+        Ok(Self(
+            row.get::<i64, _>("id"),
+            TransactionSigned::from_transaction_and_signature(
+                reth_primitives::transaction::Transaction::Legacy(TxLegacy {
+                    chain_id: Some(CHAIN_ID as u64),
+                    gas_limit: DEFAULT_GAS_LIMIT.try_into().unwrap(),
+                    gas_price: row.get::<i64, _>("gas_price").try_into().unwrap(),
+                    to,
+                    value: scale_up(row.get::<i64, _>("value")),
+                    input: row.get::<Vec<u8>, _>("input").into(),
+                    nonce: row.get::<i64, _>("nonce") as u64,
+                }),
+                signature,
+            ),
+        ))
+    }
 }
 
 pub async fn get_transactions_by_address<'a, E>(
     pool: E,
-    address: [u8; 32],
-) -> Result<Vec<(i64, SignedTransaction)>>
+    address: [u8; 20],
+) -> Result<Vec<TransactionSigned>>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    let transacions_bytes: Vec<(i64, Vec<u8>)> =
-        query("select id, raw from transactions where account_id = $1")
-            .bind(address)
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .map(|result| (result.get(0), result.get::<Vec<u8>, _>(1)))
-            .collect::<Vec<(i64, Vec<u8>)>>();
-    Ok(transacions_bytes
-        .into_iter()
-        .map(|data| {
-            SignedTransaction::decode(&data.1)
-                .map_err(|e| crate::error::Error::Error(e.to_string()))
-                .map(|t| (data.0, t))
-        })
-        .collect::<Result<Vec<(i64, SignedTransaction)>>>()
-        .map_err(|e| crate::error::Error::Error(e.to_string()))?)
+    let transactions: Vec<TransactionSignedRow> = query_as(
+        "select
+            transactions.*
+        from transactions
+        join accounts on transactions.account_id = accounts.id
+        join entries
+        on transactions.account_id = entries.creditor_id
+         or transactions.account_id = entries.debtor_id
+
+       where accounts.address = $1;
+        ",
+    )
+    .bind(address)
+    .fetch_all(pool)
+    .await?
+    .into();
+    Ok(transactions.into_iter().map(|t| t.1).collect())
 }
 
 pub async fn deposit<E>(pool: E, account: [u8; 20], starting_balance: i64) -> Result<()>
@@ -214,15 +247,19 @@ pub async fn insert_block<'a, E: Executor<'a, Database = Postgres>>(
 
 pub async fn insert_transaction<'a, E: Executor<'a, Database = Postgres>>(
     e: E,
-    signed_transaction: &SignedTransaction,
+    signed_transaction: &TransactionSigned,
     account_id: i64,
 ) -> Result<i64> {
-    let record = sqlx::query(
-        "INSERT INTO transactions (raw, hash, account_id) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(borsh::to_vec(&signed_transaction)?)
-    .bind(&signed_transaction.hash())
+    let mut signature = Vec::new();
+    signed_transaction.signature().encode(&mut signature);
+    let record = query("INSERT INTO transactions (account_id, nonce, gas_price, _to, value, input, signature) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id")
     .bind(account_id)
+    .bind(signed_transaction.transaction.nonce() as i64)
+    .bind(signed_transaction.transaction.max_fee_per_gas() as i64)
+    .bind(signed_transaction.transaction.to().map(|to| to.to_vec()))
+    .bind(scale_down(signed_transaction.transaction.value()))
+    .bind(signed_transaction.transaction.input().to_vec())
+    .bind(signature)
     .fetch_one(e)
     .await?;
 
@@ -251,24 +288,6 @@ where
     .await?;
     Ok(())
 }
-
-// pub async fn get_account_id<'a, E: Executor<'a, Database = Postgres>>(
-//     e: E,
-//     address: [u8; 20],
-// ) -> Result<Option<i64>> {
-//     let result = sqlx::query("SELECT account_id from accounts where address=$1")
-//         .bind(address)
-//         .fetch_one(e)
-//         .await
-//         .map_err(|_e| {
-//             println!("{}", _e);
-//             StatusCode::INTERNAL_SERVER_ERROR
-//         })?;
-//     if matches!(result, Err(sqlx::Error::RowNotFound)) {
-//         return Ok(LAST_LEGACY_BLOCK_TIMESTAMP);
-//     };
-//     Ok(result.get(0))
-// }
 
 pub async fn get_or_insert_account_id<'a, E: Executor<'a, Database = Postgres>>(
     e: E,
