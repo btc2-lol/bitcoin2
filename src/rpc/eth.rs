@@ -18,7 +18,7 @@ pub async fn send_raw_transaction(evm: Evm, raw_transaction: Vec<u8>) -> Result<
     let transaction =
         evm::TransactionSigned::decode_rlp_legacy_transaction(&mut &raw_transaction[..])
             .map_err(Error::from)?;
-
+println!("aaa");
     evm.run_transaction(transaction).await?;
 
     Ok(ResponseValue::Null)

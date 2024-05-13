@@ -73,6 +73,7 @@ impl Evm {
         &self,
         signed_transaction: TransactionSigned,
     ) -> crate::error::Result<[u8; 32]> {
+        println!("run");
         let db = self.db.lock().await;
         let mut transaction =
             crate::db::Transaction::new(&db.pool.clone(), &signed_transaction).await?;
@@ -80,6 +81,7 @@ impl Evm {
             self.run_system_transaction(&mut transaction, &signed_transaction)
                 .await?
         } else {
+            println!("here here here");
             transaction
                 .transfer(
                     signed_transaction
@@ -94,6 +96,7 @@ impl Evm {
                 )
                 .await
                 .unwrap();
+            println!("done");
         };
         let hash = transaction.id_as_hash();
         transaction.commit().await?;

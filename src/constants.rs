@@ -3,6 +3,8 @@ use sqlx::migrate::Migrator;
 use std::env;
 
 pub const DEFAULT_GAS_LIMIT: i64 = 21000;
+pub const LAST_LEGACY_BLOCK_TIMESTAMP: i64 = 1713557133;
+pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 83999;
 pub const CHAIN_ID: i64 = 178;
 pub static MIGRATOR: Migrator = sqlx::migrate!();
 

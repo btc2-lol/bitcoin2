@@ -13,22 +13,20 @@ CREATE TABLE blocks(
 
 CREATE TABLE transactions(
   id BIGSERIAL PRIMARY KEY, 
-  account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+  account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
+  block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT,
   nonce BIGINT NOT NULL,
   gas_price BIGINT NOT NULL,
-  _to BYTEA UNIQUE CHECK (octet_length(_to) = 20),
-  value BIGINT NOT NULL,
   input BYTEA, 
-  signature BYTEA, 
-  block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT
+  signature BYTEA 
 );
 
 CREATE TABLE entries(
   id BIGSERIAL PRIMARY KEY, 
   transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
-  amount BIGINT NOT NULL CHECK (amount > 0), 
-  creditor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
-  debtor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT
+  to_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
+  from_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+  value BIGINT NOT NULL
 );
 
 CREATE TABLE spent_legacy_outputs(
@@ -42,7 +40,7 @@ CREATE TABLE spent_legacy_outputs(
 
 CREATE 
 OR REPLACE FUNCTION validate_entry() RETURNS TRIGGER AS $$ BEGIN
-    IF (SELECT balance FROM accounts WHERE id = NEW.creditor_id) < NEW.amount THEN RAISE EXCEPTION 'Insufficient funds in the debtor_id account.';
+    IF (SELECT balance FROM accounts WHERE id = NEW.from_id) < NEW.value THEN RAISE EXCEPTION 'Insufficient funds in the to_id account.';
 END IF;
 RETURN NEW;
 END;
@@ -50,12 +48,12 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER validate_before_insert BEFORE INSERT ON entries FOR EACH ROW EXECUTE FUNCTION validate_entry();
 
 CREATE OR REPLACE FUNCTION update_account_balances() RETURNS TRIGGER AS $$ BEGIN 
-UPDATE accounts SET balance = balance + NEW.amount 
+UPDATE accounts SET balance = balance + NEW.value 
 WHERE 
-  accounts.id = NEW.debtor_id;
-UPDATE accounts SET balance = balance - NEW.amount 
+  accounts.id = NEW.to_id;
+UPDATE accounts SET balance = balance - NEW.value 
 WHERE 
-  accounts.id = NEW.creditor_id;
+  accounts.id = NEW.from_id;
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -63,28 +61,28 @@ CREATE TRIGGER update_balances_after_insert
 AFTER 
   INSERT ON entries FOR EACH ROW EXECUTE FUNCTION update_account_balances();
 
-CREATE OR REPLACE PROCEDURE transfer(transaction_id BIGINT, creditor_account BYTEA, debtor_account BYTEA, transfer_amount BIGINT)
+CREATE OR REPLACE PROCEDURE transfer(transaction_id BIGINT, from_account BYTEA, to_account BYTEA, transfer_value BIGINT)
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    creditor_id BIGINT;
-    debtor_id BIGINT;
+    from_id BIGINT;
+    to_id BIGINT;
 BEGIN
-    SELECT id INTO creditor_id FROM accounts WHERE address = creditor_account;
+    SELECT id INTO from_id FROM accounts WHERE address = from_account;
 
     IF NOT FOUND THEN
-        INSERT INTO accounts (address, balance) VALUES (creditor_account, 0) RETURNING id INTO creditor_id;
+        INSERT INTO accounts (address, balance) VALUES (from_account, 0) RETURNING id INTO from_id;
     END IF;
 
-    SELECT id INTO debtor_id FROM accounts WHERE address = debtor_account;
+    SELECT id INTO to_id FROM accounts WHERE address = to_account;
 
     IF NOT FOUND THEN
-        INSERT INTO accounts (address, balance) VALUES (debtor_account, 0) RETURNING id INTO debtor_id;
+        INSERT INTO accounts (address, balance) VALUES (to_account, 0) RETURNING id INTO to_id;
     END IF;
 
 
-    INSERT INTO entries (transaction_id, creditor_id, debtor_id, amount)
-    VALUES (transaction_id, creditor_id, debtor_id, transfer_amount);
+    INSERT INTO entries (transaction_id, from_id, to_id, value)
+    VALUES (transaction_id, from_id, to_id, transfer_value);
 END;
 $$;
 

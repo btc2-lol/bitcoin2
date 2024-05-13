@@ -1,13 +1,14 @@
 use crate::{
     db::{
         get_last_block_timestamp, get_transaction_hashes, get_transactions_by_block_number,
-        insert_block, update_transactions_block_number,
+        insert_block, update_transactions_block_number,get_transaction_count, get_last_block_number
     },
     error::Result,
 };
 use digest::Digest;
 use sha2::Sha256;
 use sqlx::PgPool;
+use reth_primitives::TransactionSigned;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
     time,
@@ -30,22 +31,22 @@ pub async fn start(pool: PgPool) -> Result<()> {
 }
 
 async fn add_block(pool: PgPool) -> Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.clone().begin().await?;
     let proposed_transactions = get_transactions_by_block_number(&mut *tx, None).await?;
     if proposed_transactions.len() == 0 {
         return Ok(());
     }
     let transaction_ids: Vec<i64> = proposed_transactions.iter().map(|t| t.0).collect();
-    let transactions_hashes = get_transaction_hashes(&mut *tx).await?;
-    let block_number = insert_block(&mut *tx, hash(transactions_hashes)).await?;
+    let block_number = insert_block(&mut *tx, block_hash(proposed_transactions.into_iter().map(|t| t.1).collect())).await?;
     update_transactions_block_number(&mut *tx, transaction_ids, block_number).await?;
+    tx.commit().await?;
     Ok(())
 }
 
-fn hash(hashes: Vec<[u8; 32]>) -> [u8; 32] {
+fn block_hash(signed_transations: Vec<TransactionSigned>) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    for hash in hashes.iter() {
-        hasher.update(&hash)
+    for signed_transation in signed_transations.iter() {
+        hasher.update(&signed_transation.hash())
     }
     hasher.finalize().into()
 }
@@ -60,31 +61,47 @@ fn unix_timestamp_to_instant(unix_timestamp: u64) -> Instant {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{get_or_insert_account_id, get_transactions_by_block_number, insert_transaction},
-        // evm::transaction::SignedTransaction,
+        db::{get_or_insert_account_id, get_transactions_by_block_number, insert_transaction, get_last_block_number},
     };
+    use crate::app;
     use reth_primitives::transaction::TransactionSigned;
     use sqlx::PgPool;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use crate::Evm;
+    use serde_json::json;
+    use tower::ServiceExt;
+    use crate::constants::LAST_LEGACY_BLOCK_NUMBER;
 
     #[sqlx::test]
     async fn add_block(pool: PgPool) -> sqlx::Result<()> {
-        let signed_transaction = TransactionSigned::decode_rlp_legacy_transaction(&mut &hex::decode("f901e7038082520894000000000000000000000000000000000000000080b90184e60b060d00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000008d416374696f6e3a20557067726164650a44657374696e6174696f6e20436861696e2049443a203230330a496e707574733a0a20202d0a20202020486173683a20343931363865626338323661383263633834633031333936363064396261666239313961366135316432663031626633313632393839363036316533393464300a20202020496e6465783a20300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000411fdf09871abfb171e1613469369beaa593830a79d6567f4a2637a97da02b953dfc68efab3e9ce9ec70ce814259aa8bdcf15853d7e26e854016e177b11f73a32aad00000000000000000000000000000000000000000000000000000000000000820188a002051047bd0fabb9f23d1952ee5bdc6e1adafab29995d8733156068c2c025b29a0453c5adcb7a228a0fb2101a5a18b2ea219bee249542f763826586699409f9b84").unwrap()[..]).unwrap();
-        let account_id = get_or_insert_account_id(
-            &pool,
-            signed_transaction
-                .recover_signer()
-                .unwrap()
-                .to_vec()
-                .try_into()
-                .unwrap(),
+        let evm: Evm = Evm::new(pool.clone());
+        evm.deposit(
+            hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
+            100000000,
         )
-        .await
-        .unwrap();
-        insert_transaction(&pool, &signed_transaction, account_id)
-            .await
+        .await;
+
+        let message = json!({
+                "jsonrpc": "2.0",
+                "method": "eth_sendRawTransaction",
+                "params": ["0xf8690180825208943073ac44aa1b95f2fe71bb2eb36b9ce27892f8ee8806f05b59d3b20000808201b9a0d95066012c1af3689ac24030b965a81211b506022d4db117bf90b4a22ccaf981a03c818c75f0634ee921cbcb290371c5e14e76768db4f18900753dbcce651978eb"],
+                "id":1
+        });
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/")
+            .body(Body::from(message.to_string()))
             .unwrap();
-        let _proposed_transactions = get_transactions_by_block_number(&pool, None).await.unwrap();
-        super::add_block(pool).await.unwrap();
+
+        let response = app(evm).await.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        super::add_block(pool.clone()).await.unwrap();
+        assert_eq!(get_last_block_number(&pool.clone()).await.unwrap(), LAST_LEGACY_BLOCK_NUMBER + 1);
         Ok(())
     }
 }
