@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::response::Result;
 use num_bigint::BigUint;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::Zero;
 use reth_primitives::U256;
 use serde_json::{json, Value};
 
@@ -31,9 +31,6 @@ pub fn id_as_hash(id: i64) -> Value {
     encode_bytes(&array)
 }
 
-pub fn parse_i64(vec: &Vec<u8>) -> i64 {
-    BigUint::from_bytes_be(vec).to_i64().unwrap()
-}
 pub fn encode_amount(amount: BigUint) -> Value {
     if amount == Zero::zero() {
         json!("0x0")
