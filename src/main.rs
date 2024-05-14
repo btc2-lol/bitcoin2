@@ -4,10 +4,9 @@ use bitcoin2::{
     evm::Evm,
 };
 use dotenv::dotenv;
-use rustls_acme::{caches::DirCache, AcmeConfig};
+use rustls_acme::AcmeConfig;
 use sqlx::postgres::PgPoolOptions;
-use std::net::Ipv6Addr;
-use std::{env, net::Ipv4Addr};
+use std::{env, net::Ipv6Addr};
 use tokio::spawn;
 use tokio_stream::StreamExt;
 
@@ -26,7 +25,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let evm: Evm = Evm::new(pool);
     let addr = (Ipv6Addr::UNSPECIFIED, *PORT);
     let app = bitcoin2::app(evm).await;
-    if (matches!(*ENV, Env::Production)) {
+    if matches!(*ENV, Env::Production) {
         let mut state = AcmeConfig::new(LETS_ENCRYPT_DOMAINS.clone())
             .contact(LETS_ENCRYPT_EMAILS.iter().map(|e| format!("mailto:{}", e)))
             .directory_lets_encrypt(matches!(*ENV, Env::Production))

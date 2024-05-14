@@ -18,8 +18,12 @@ pub enum Error {
     SqlxError(String),
     #[error("{0}")]
     UnsupportedMethod(String),
-    #[error("InvalidSignature")]
+    #[error("Invalid transaction")]
+    InvalidTransaction,
+    #[error("Invalid Signature")]
     InvalidSignature,
+    #[error("Function not found")]
+    FunctionNotFound,
     #[error("Bad Request")]
     BadRequest,
 }

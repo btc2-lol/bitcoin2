@@ -2,12 +2,6 @@ use lazy_static::lazy_static;
 use sqlx::migrate::Migrator;
 use std::env;
 
-pub const DEFAULT_GAS_LIMIT: i64 = 21000;
-pub const LAST_LEGACY_BLOCK_TIMESTAMP: i64 = 1713557133;
-pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 83999;
-pub const CHAIN_ID: i64 = 178;
-pub static MIGRATOR: Migrator = sqlx::migrate!();
-
 macro_rules! account_id {
     ($last_byte:expr) => {{
         let mut array = [0u8; 20];
@@ -15,6 +9,16 @@ macro_rules! account_id {
         array
     }};
 }
+pub const LEGACY_ACCOUNT: [u8; 20] = account_id!(0);
+pub const DEFAULT_GAS_LIMIT: i64 = 21000;
+pub const LAST_LEGACY_BLOCK_TIMESTAMP: i64 = 1713557133;
+pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 83999;
+pub const CHAIN_ID: i64 = 178;
+pub const SYSTEM_ADDRESS: [u8; 20] = [0; 20];
+
+// ethers.FunctionFragment.getSelector('upgradeByMessage', ['string', 'bytes'])
+pub const UPGRADE_BY_MESSAGE: [u8; 4] = *b"\xe6\x0b\x06\x0d";
+pub static MIGRATOR: Migrator = sqlx::migrate!();
 
 pub enum Env {
     Production,

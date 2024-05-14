@@ -1,26 +1,21 @@
 pub mod postgres;
-// pub mod transaction;
 pub mod upgrade_by_message;
 
-use crate::db::{
-    deposit, get_balance, get_transaction_count, get_transaction_count_by_address,
-    get_transaction_hash, get_transactions_by_address,
+use crate::{
+    constants::{SYSTEM_ADDRESS, UPGRADE_BY_MESSAGE},
+    db::{
+        deposit, get_balance, get_transaction_count, get_transaction_count_by_address,
+        get_transactions_by_address,
+    },
+    error::{Error, Result},
 };
 use reth_primitives::U256;
 pub use reth_primitives::{transaction::TransactionSigned, Address};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-// pub use transaction::SignedTransaction;
 use upgrade_by_message::UpgradeByMessage;
 
-const SYSTEM_ADDRESS: [u8; 20] = [0; 20];
-// lazy_static! {
-//     static ref  SYSTEM_ADDRESS: Address =  Address::from([0; 20]);
-// }
-
-// ethers.FunctionFragment.getSelector('upgradeByMessage', ['string', 'bytes'])
-const UPGRADE_BY_MESSAGE: [u8; 4] = *b"\xe6\x0b\x06\x0d";
 #[derive(Clone)]
 pub struct Evm {
     db: Arc<Mutex<postgres::PgDb>>,
@@ -42,14 +37,9 @@ impl Evm {
     pub async fn get_transactions_by_address(
         &self,
         address: [u8; 20],
-    ) -> crate::error::Result<Vec<TransactionSigned>> {
+    ) -> Result<Vec<TransactionSigned>> {
         let db = self.db.lock().await;
         get_transactions_by_address(&db.pool, address).await
-    }
-
-    pub async fn get_transaction_hash(&self, id: i64) -> Option<[u8; 32]> {
-        let db = self.db.lock().await;
-        get_transaction_hash(&db.pool, id).await.ok()
     }
 
     pub async fn get_transaction_count_by_address(&self, address: [u8; 20]) -> i64 {
@@ -69,11 +59,7 @@ impl Evm {
         deposit(&db.pool, address, value).await.unwrap()
     }
 
-    pub async fn run_transaction(
-        &self,
-        signed_transaction: TransactionSigned,
-    ) -> crate::error::Result<[u8; 32]> {
-        println!("run");
+    pub async fn run_transaction(&self, signed_transaction: TransactionSigned) -> Result<i64> {
         let db = self.db.lock().await;
         let mut transaction =
             crate::db::Transaction::new(&db.pool.clone(), &signed_transaction).await?;
@@ -81,33 +67,32 @@ impl Evm {
             self.run_system_transaction(&mut transaction, &signed_transaction)
                 .await?
         } else {
-            println!("here here here");
             transaction
                 .transfer(
                     signed_transaction
                         .recover_signer()
-                        .ok_or(crate::error::Error::Error("Invalid Signer".to_string()))
-                        .map(|to| -> [u8; 20] { to.to_vec().try_into().unwrap() })?,
+                        .ok_or(Error::InvalidSignature)
+                        .map(|signer| signer.to_vec().try_into().unwrap())?,
                     signed_transaction
                         .to()
-                        .map(|to| -> [u8; 20] { to.to_vec().try_into().unwrap() })
+                        .ok_or(Error::InvalidTransaction)?
+                        .to_vec()
+                        .try_into()
                         .unwrap(),
                     scale_down(signed_transaction.value()),
                 )
-                .await
-                .unwrap();
-            println!("done");
+                .await?;
         };
-        let hash = transaction.id_as_hash();
-        transaction.commit().await?;
-        Ok(hash)
+        let transaction_id = transaction.commit().await?;
+
+        Ok(transaction_id)
     }
 
     pub async fn run_system_transaction<'a>(
         &self,
         transaction: &mut crate::db::Transaction<'a>,
         signed_transaction: &TransactionSigned,
-    ) -> crate::error::Result<()> {
+    ) -> Result<()> {
         match signed_transaction.transaction.input().get(0..4) {
             Some(selector) if selector == UPGRADE_BY_MESSAGE => {
                 let (upgrade_by_message, signature, verifying_key) =
@@ -119,8 +104,6 @@ impl Evm {
                     .await?;
                 transaction
                     .upgrade(
-                        1,
-                        signed_transaction.hash().try_into().unwrap(),
                         upgrade_by_message.inputs,
                         signed_transaction
                             .recover_signer()
@@ -130,10 +113,9 @@ impl Evm {
                             .unwrap(),
                         amount,
                     )
-                    .await
-                    .map_err(|e| crate::error::Error::Error(e.to_string()))?
+                    .await?
             }
-            _ => return Err(crate::error::Error::Error("Contract not found".to_string())),
+            _ => return Err(Error::FunctionNotFound),
         };
 
         Ok(())

@@ -1,14 +1,14 @@
 use crate::{
     db::{
-        get_last_block_timestamp, get_transaction_hashes, get_transactions_by_block_number,
-        insert_block, update_transactions_block_number,get_transaction_count, get_last_block_number
+        get_last_block_timestamp, get_transactions_by_block_number, insert_block,
+        update_transactions_block_number,
     },
     error::Result,
 };
 use digest::Digest;
+use reth_primitives::TransactionSigned;
 use sha2::Sha256;
 use sqlx::PgPool;
-use reth_primitives::TransactionSigned;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
     time,
@@ -37,7 +37,11 @@ async fn add_block(pool: PgPool) -> Result<()> {
         return Ok(());
     }
     let transaction_ids: Vec<i64> = proposed_transactions.iter().map(|t| t.0).collect();
-    let block_number = insert_block(&mut *tx, block_hash(proposed_transactions.into_iter().map(|t| t.1).collect())).await?;
+    let block_number = insert_block(
+        &mut *tx,
+        block_hash(proposed_transactions.into_iter().map(|t| t.1).collect()),
+    )
+    .await?;
     update_transactions_block_number(&mut *tx, transaction_ids, block_number).await?;
     tx.commit().await?;
     Ok(())
@@ -60,20 +64,15 @@ fn unix_timestamp_to_instant(unix_timestamp: u64) -> Instant {
 }
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::{get_or_insert_account_id, get_transactions_by_block_number, insert_transaction, get_last_block_number},
-    };
-    use crate::app;
-    use reth_primitives::transaction::TransactionSigned;
-    use sqlx::PgPool;
+    use crate::{app, constants::LAST_LEGACY_BLOCK_NUMBER, db::get_last_block_number, Evm};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
-    use crate::Evm;
+
     use serde_json::json;
+    use sqlx::PgPool;
     use tower::ServiceExt;
-    use crate::constants::LAST_LEGACY_BLOCK_NUMBER;
 
     #[sqlx::test]
     async fn add_block(pool: PgPool) -> sqlx::Result<()> {
@@ -101,7 +100,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         super::add_block(pool.clone()).await.unwrap();
-        assert_eq!(get_last_block_number(&pool.clone()).await.unwrap(), LAST_LEGACY_BLOCK_NUMBER + 1);
+        assert_eq!(
+            get_last_block_number(&pool.clone()).await.unwrap(),
+            LAST_LEGACY_BLOCK_NUMBER + 1
+        );
         Ok(())
     }
 }
