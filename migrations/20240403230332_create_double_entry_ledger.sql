@@ -13,6 +13,7 @@ CREATE TABLE blocks(
 
 CREATE TABLE transactions(
   id BIGSERIAL PRIMARY KEY, 
+  hash BYTEA UNIQUE CHECK (octet_length(hash) = 32),
   account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
   block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT,
   nonce BIGINT NOT NULL,

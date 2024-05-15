@@ -24,13 +24,6 @@ pub async fn send_raw_transaction(evm: Evm, raw_transaction: Vec<u8>) -> Result<
     Ok(ResponseValue::Value(id_as_hash(transaction_id)))
 }
 
-pub fn id_as_hash(id: i64) -> Value {
-    let mut array = [0u8; 32];
-    array[24..].copy_from_slice(&id.to_be_bytes());
-
-    encode_bytes(&array)
-}
-
 pub fn encode_amount(amount: BigUint) -> Value {
     if amount == Zero::zero() {
         json!("0x0")
@@ -81,10 +74,11 @@ pub async fn get_transaction_count(evm: Evm, address: [u8; 20]) -> Result<Respon
 pub async fn get_code(_block_hash: [u8; 32]) -> Result<ResponseValue> {
     Ok(ResponseValue::Value(json!("0x")))
 }
-pub async fn get_block_by_number(_evm: Evm, block_number: i64) -> Result<ResponseValue> {
+pub async fn get_block_by_number(evm: Evm, block_number: i64) -> Result<ResponseValue> {
     println!("getting block by number");
+    let transaction = evm.get_transaction(Some(block_number), None).await?;
     Ok(ResponseValue::Value(json!({
-       "hash": id_as_hash(block_number),
+       "hash": encode_bytes(&transaction.hash().to_vec()),
         "parentHash":encode_bytes(&[0; 32].to_vec()),
         "number": encode_amount(0u32.into()),
         "miner": encode_bytes(&[0; 32].to_vec()),
@@ -92,15 +86,22 @@ pub async fn get_block_by_number(_evm: Evm, block_number: i64) -> Result<Respons
         "gasLimit": encode_amount(0u32.into()),
         "gasUsed": encode_amount(0u32.into()),
         "timestamp": encode_amount(0u32.into()),
-        "transactions": vec![id_as_hash(block_number)],
+        "transactions": vec![encode_bytes(&transaction.hash().to_vec())],
     })))
 }
 pub async fn get_block_by_hash(evm: Evm, block_hash: [u8; 32]) -> Result<ResponseValue> {
-    get_block_by_number(
-        evm,
-        i64::from_be_bytes(block_hash[28..].try_into().unwrap()),
-    )
-    .await
+    let transaction = evm.get_transaction(None, Some(block_hash)).await?;
+    Ok(ResponseValue::Value(json!({
+       "hash": encode_bytes(&transaction.hash().to_vec()),
+        "parentHash":encode_bytes(&[0; 32].to_vec()),
+        "number": encode_amount(0u32.into()),
+        "miner": encode_bytes(&[0; 32].to_vec()),
+        "extraData": encode_bytes(&vec![]),
+        "gasLimit": encode_amount(0u32.into()),
+        "gasUsed": encode_amount(0u32.into()),
+        "timestamp": encode_amount(0u32.into()),
+        "transactions": vec![encode_bytes(&transaction.hash().to_vec())],
+    })))
 }
 pub async fn gas_price() -> Result<ResponseValue> {
     Ok(ResponseValue::Number(U256::from::<u64>(0)))

@@ -5,7 +5,7 @@ use crate::{
     constants::{SYSTEM_ADDRESS, UPGRADE_BY_MESSAGE},
     db::{
         deposit, get_balance, get_transaction_count, get_transaction_count_by_address,
-        get_transactions_by_address,
+        get_transactions_by_address, get_transaction,
     },
     error::{Error, Result},
 };
@@ -32,6 +32,15 @@ impl Evm {
     pub async fn get_balance(&self, address: [u8; 20]) -> Option<i64> {
         let db = self.db.lock().await;
         get_balance(&db.pool, address).await.ok()
+    }
+    
+    pub async fn get_transaction(
+        &self,
+        block_number: Option<i64>,
+        hash: Option<[u8;32]>
+    ) -> Result<TransactionSigned> {
+        let db = self.db.lock().await;
+        Ok(get_transaction(&db.pool, block_number, hash).await?.1)
     }
 
     pub async fn get_transactions_by_address(

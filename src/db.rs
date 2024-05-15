@@ -115,6 +115,35 @@ where
         .map(|row| row.get(0))?)
 }
 
+pub async fn get_transaction<'a, E>(
+    pool: E,
+    block_number: Option<i64>,
+    hash: Option<[u8;32]>
+) -> Result<TransactionSignedRow>
+where
+    E: Executor<'a, Database = Postgres>,
+{
+    let mut builder: QueryBuilder<'_, Postgres> = QueryBuilder::new(
+        "SELECT transactions.*,
+        entries.*,
+        accounts_to.address as to_address,
+        accounts_from.address as from_address
+        FROM transactions;",
+    );
+
+    if let Some(block_number) = block_number {
+        builder.push(" WHERE block_number = ");
+        builder.push_bind(block_number);
+    }
+    
+    if let Some(hash) = hash {
+        builder.push(" WHERE hash = ");
+        builder.push_bind(hash);
+    }
+
+    Ok(query_as(builder.sql()).fetch_one(pool).await?)
+}
+
 pub async fn get_transactions_by_block_number<'a, E>(
     pool: E,
     block_number: Option<i64>,
@@ -231,7 +260,8 @@ pub async fn insert_transaction<'a, E: Executor<'a, Database = Postgres>>(
 ) -> Result<i64> {
     let mut signature = Vec::new();
     signed_transaction.signature().encode(&mut signature);
-    let record = query("INSERT INTO transactions (account_id, nonce, gas_price, input, signature) VALUES ($1, $2, $3, $4, $5) RETURNING id")
+    let record = query("INSERT INTO transactions (hash, account_id, nonce, gas_price, input, signature) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id")
+        .bind(signed_transaction.hash().to_vec())
         .bind(account_id)
         .bind(signed_transaction.transaction.nonce() as i64)
         .bind(signed_transaction.transaction.max_fee_per_gas() as i64)
