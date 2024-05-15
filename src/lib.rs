@@ -6,16 +6,16 @@ mod error;
 pub mod evm;
 mod rpc;
 
-use crate::evm::Evm;
 use axum::{
     http::{header, method::Method},
     routing::post,
     Router,
 };
+use sqlx::PgPool;
 
 use tower_http::cors::{Any, CorsLayer};
 
-pub async fn app(evm: Evm) -> Router {
+pub async fn app(pool: PgPool) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_headers(vec![header::CONTENT_TYPE])
@@ -24,7 +24,7 @@ pub async fn app(evm: Evm) -> Router {
     Router::new()
         .route("/", post(rpc::handler))
         .layer(cors)
-        .with_state(evm)
+        .with_state(pool)
 }
 
 #[cfg(test)]
@@ -55,7 +55,7 @@ mod tests {
             .body(Body::from(message.to_string()))
             .unwrap();
 
-        let response = app(evm).await.oneshot(request).await.unwrap();
+        let response = app(pool.clone()).await.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             get_balance(
@@ -92,7 +92,7 @@ mod tests {
             .body(Body::from(message.to_string()))
             .unwrap();
 
-        let response = app(evm).await.oneshot(request).await.unwrap();
+        let response = app(pool.clone()).await.oneshot(request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -113,6 +113,22 @@ mod tests {
             .unwrap(),
             50000000
         );
+        let message = json!({
+                "jsonrpc": "2.0",
+                "method": "eth_getBlockByNumber",
+                "params": ["0x1", false],
+                "id":1
+        });
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/")
+            .body(Body::from(message.to_string()))
+            .unwrap();
+
+        let response = app(pool.clone()).await.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
         Ok(())
     }
 
@@ -138,7 +154,7 @@ mod tests {
             .body(Body::from(message.to_string()))
             .unwrap();
 
-        let _response = app(evm.clone()).await.oneshot(request).await.unwrap();
+        let _response = app(pool.clone()).await.oneshot(request).await.unwrap();
         let message = json!({
             "jsonrpc": "2.0",
             "method": "btc2_getTransactions",
@@ -153,7 +169,7 @@ mod tests {
             .uri("/")
             .body(Body::from(message.to_string()))
             .unwrap();
-        let response = app(evm).await.oneshot(request).await.unwrap();
+        let response = app(pool).await.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         Ok(())

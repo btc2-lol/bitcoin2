@@ -1,6 +1,6 @@
 use axum::response::{IntoResponse, Response};
 use serde::ser::StdError;
-use std::convert::Infallible;
+use std::{convert::Infallible, num::TryFromIntError};
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
@@ -66,6 +66,11 @@ impl From<hex::FromHexError> for Error {
 
 impl From<Infallible> for Error {
     fn from(err: Infallible) -> Self {
+        Error::Error(err.to_string())
+    }
+}
+impl From<TryFromIntError> for Error {
+    fn from(err: TryFromIntError) -> Self {
         Error::Error(err.to_string())
     }
 }

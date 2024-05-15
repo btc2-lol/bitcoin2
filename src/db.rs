@@ -9,7 +9,8 @@ use crate::{
 use reth_primitives::{Address, Signature, TxKind, TxLegacy};
 pub use sqlx::FromRow;
 use sqlx::{
-    postgres::PgRow, query, query_as, Error::RowNotFound, Executor, Postgres, QueryBuilder, Row,
+    postgres::PgRow, query, query_as, types::time::PrimitiveDateTime, Error::RowNotFound, Executor,
+    Postgres, QueryBuilder, Row,
 };
 
 pub struct Transaction<'a> {
@@ -76,13 +77,14 @@ impl Transaction<'_> {
     }
 }
 
-pub async fn get_last_block_timestamp<'a, E>(pool: E) -> Result<i64>
+pub async fn get_last_block_timestamp<'a, E>(pool: E) -> Result<PrimitiveDateTime>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    let result = query_as::<_, (i64,)>("SELECT timestamp FROM blocks ORDER BY blocks.number")
-        .fetch_one(pool)
-        .await;
+    let result =
+        query_as::<_, (PrimitiveDateTime,)>("SELECT timestamp FROM blocks ORDER BY blocks.number")
+            .fetch_one(pool)
+            .await;
     if matches!(result, Err(RowNotFound)) {
         return Ok(LAST_LEGACY_BLOCK_TIMESTAMP);
     };
@@ -115,33 +117,59 @@ where
         .map(|row| row.get(0))?)
 }
 
-pub async fn get_transaction<'a, E>(
+pub async fn get_transaction_by_id<'a, E>(
     pool: E,
-    block_number: Option<i64>,
-    hash: Option<[u8;32]>
+    transaction_id: i64,
 ) -> Result<TransactionSignedRow>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    let mut builder: QueryBuilder<'_, Postgres> = QueryBuilder::new(
-        "SELECT transactions.*,
+    let query = "
+        SELECT transactions.*,
         entries.*,
         accounts_to.address as to_address,
         accounts_from.address as from_address
-        FROM transactions;",
-    );
+        FROM transactions 
+        JOIN entries ON transactions.id = entries.transaction_id
+        JOIN accounts accounts_to ON entries.to_id = accounts_to.id
+        JOIN accounts accounts_from ON entries.from_id = accounts_from.id
+        WHERE transactions.id = $1
+    ";
 
-    if let Some(block_number) = block_number {
-        builder.push(" WHERE block_number = ");
-        builder.push_bind(block_number);
-    }
-    
-    if let Some(hash) = hash {
-        builder.push(" WHERE hash = ");
-        builder.push_bind(hash);
-    }
+    println!("{}", query);
 
-    Ok(query_as(builder.sql()).fetch_one(pool).await?)
+    let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
+        .bind(transaction_id)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(transaction_signed_row)
+}
+
+pub async fn get_transaction_by_hash<'a, E>(pool: E, hash: [u8; 32]) -> Result<TransactionSignedRow>
+where
+    E: Executor<'a, Database = Postgres>,
+{
+    let query = "
+        SELECT transactions.*,
+        entries.*,
+        accounts_to.address as to_address,
+        accounts_from.address as from_address
+        FROM transactions 
+        JOIN entries ON transactions.id = entries.transaction_id
+        JOIN accounts accounts_to ON entries.to_id = accounts_to.id
+        JOIN accounts accounts_from ON entries.from_id = accounts_from.id
+        WHERE hash = $1
+    ";
+
+    println!("{}", query);
+
+    let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
+        .bind(hash)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(transaction_signed_row)
 }
 
 pub async fn get_transactions_by_block_number<'a, E>(
@@ -168,6 +196,8 @@ where
     if let Some(block_number) = block_number {
         builder.push(" WHERE block_number = ");
         builder.push_bind(block_number);
+    } else {
+        builder.push(" WHERE block_number IS NULL");
     }
 
     Ok(query_as(builder.sql()).fetch_all(pool).await?)
@@ -245,7 +275,7 @@ pub async fn insert_block<'a, E: Executor<'a, Database = Postgres>>(
     hash: [u8; 32],
 ) -> Result<i64> {
     Ok(
-        query("INSERT INTO blocks (hash) VALUES ($1) RETURNING number")
+        query("INSERT INTO blocks (hash, timestamp) VALUES ($1, NOW()) RETURNING number")
             .bind(hash)
             .fetch_one(e)
             .await

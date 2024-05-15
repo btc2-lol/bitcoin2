@@ -1,11 +1,12 @@
 use super::{encode_amount, encode_bytes, ResponseValue};
-use crate::evm::{Evm, SCALING_FACTOR};
+use crate::{db, evm::SCALING_FACTOR};
 use axum::response::Result;
 use num_bigint::BigUint;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
-pub async fn get_transactions(evm: Evm, address: [u8; 20]) -> Result<ResponseValue> {
-    let transactions = evm.get_transactions_by_address(address).await?;
+pub async fn get_transactions(pool: PgPool, address: [u8; 20]) -> Result<ResponseValue> {
+    let transactions = db::get_transactions_by_address(&pool, address).await?;
 
     Ok(ResponseValue::Value(serde_json::Value::Array(
         transactions

@@ -8,18 +8,20 @@ use crate::{
 use digest::Digest;
 use reth_primitives::TransactionSigned;
 use sha2::Sha256;
+
 use sqlx::PgPool;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use sqlx::types::time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::{
     time,
-    time::{sleep_until, Instant},
+    time::{sleep_until, Duration, Instant},
 };
+
 const BLOCK_TIME: tokio::time::Duration = tokio::time::Duration::from_secs(1);
 
 pub async fn start(pool: PgPool) -> Result<()> {
     let last_block_timestamp = get_last_block_timestamp(&pool).await?;
-    let next_block_timestamp =
-        unix_timestamp_to_instant(last_block_timestamp.try_into().unwrap()) + BLOCK_TIME;
+    let next_block_timestamp = datetime_to_tokio_instant(last_block_timestamp) + BLOCK_TIME;
 
     sleep_until(next_block_timestamp).await;
     let mut ticker = time::interval(BLOCK_TIME);
@@ -49,27 +51,40 @@ async fn add_block(pool: PgPool) -> Result<()> {
 
 fn block_hash(signed_transations: Vec<TransactionSigned>) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    for signed_transation in signed_transations.iter() {
-        hasher.update(&signed_transation.hash())
+    for signed_transaction in signed_transations.iter() {
+        println!("hashing: {}", signed_transaction.hash());
+        hasher.update(&signed_transaction.hash())
     }
     hasher.finalize().into()
 }
-fn unix_timestamp_to_instant(unix_timestamp: u64) -> Instant {
-    match SystemTime::now()
-        .duration_since(UNIX_EPOCH + std::time::Duration::from_secs(unix_timestamp))
-    {
-        Ok(duration_since_timestamp) => Instant::now() - duration_since_timestamp,
-        Err(e) => Instant::now() + e.duration(),
+
+fn datetime_to_tokio_instant(datetime: PrimitiveDateTime) -> Instant {
+    let now_odt = OffsetDateTime::now_utc();
+    let now = PrimitiveDateTime::new(now_odt.date(), now_odt.time());
+
+    let duration = if datetime > now {
+        datetime - now
+    } else {
+        now - datetime
+    };
+
+    let secs = duration.whole_seconds();
+    let nanos = duration.subsec_nanoseconds();
+
+    if datetime > now {
+        Instant::now() + Duration::new(secs as u64, nanos as u32)
+    } else {
+        Instant::now() - Duration::new(secs as u64, nanos as u32)
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use crate::{app, constants::LAST_LEGACY_BLOCK_NUMBER, db::get_last_block_number, Evm};
+    use crate::{app, constants::LAST_LEGACY_BLOCK_NUMBER, db::get_last_block_number, evm::Evm};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
-
     use serde_json::json;
     use sqlx::PgPool;
     use tower::ServiceExt;
@@ -96,7 +111,7 @@ mod tests {
             .body(Body::from(message.to_string()))
             .unwrap();
 
-        let response = app(evm).await.oneshot(request).await.unwrap();
+        let response = app(pool.clone()).await.oneshot(request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         super::add_block(pool.clone()).await.unwrap();

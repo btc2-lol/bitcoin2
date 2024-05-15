@@ -22,7 +22,7 @@ ethers-core = "*"
 ethers-providers = "*"
 #rusqlite = "0.31.0"
 sha2 = "0.10.8"
-sqlx = {git = "https://github.com/launchbadge/sqlx", default_features = false, features = ["postgres", "sqlite", "runtime-tokio", "macros", "migrate"] }
+sqlx = {git = "https://github.com/launchbadge/sqlx", default_features = false, features = ["postgres", "sqlite", "runtime-tokio", "macros", "migrate", "time"] }
 tokio = { version = "1.37", features = ["full", "time"] }
 bincode = { version = "2.0.0-rc.3", features= ["derive"]}
 tempfile = "3.10.1"
@@ -44,6 +44,7 @@ alloy-rlp = "0.3.4"
 rustls-acme = {version = "0.9.2", features=["axum"]}
 tokio-stream = "0.1.15"
 axum-server = "0.6.0"
+time = {version = "0.3.36", features = ["macros"]}
 
 [dev-dependencies]
 alloy-json-abi = "0.7.0"

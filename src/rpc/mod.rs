@@ -2,7 +2,6 @@ mod btc2;
 mod eth;
 mod net;
 
-use crate::evm::Evm;
 use axum::{extract, extract::State};
 
 use btc2::*;
@@ -14,6 +13,7 @@ use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use reth_primitives::U256;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 #[derive(serde::Deserialize, Debug)]
 pub struct JsonRpcRequest {
@@ -57,11 +57,11 @@ impl TryFrom<&ParamValue> for [u8; 20] {
 
     fn try_from(request_value: &ParamValue) -> Result<Self> {
         if let Value::String(string) = &request_value.0 {
-            Ok(parse_bytes_like(string)?
-                .try_into()
-                .map_err(|_| Error::ParseError(format!("Expected 20 byte length array")))?)
+            Ok(parse_bytes_like(string)?.try_into()?)
         } else {
-            Err(Error::ParseError(format!("Expected 20 byte length array")))
+            Err(Error::ParseError(format!(
+                "Expected 20 byte length array 4"
+            )))
         }
     }
 }
@@ -80,13 +80,7 @@ impl TryFrom<&ParamValue> for [u8; 32] {
     type Error = Error;
 
     fn try_from(request_value: &ParamValue) -> Result<Self> {
-        if let Value::String(string) = &request_value.0 {
-            Ok(parse_bytes_like(string)?
-                .try_into()
-                .map_err(|_| Error::ParseError(format!("Expected 20 byte length array")))?)
-        } else {
-            Err(Error::ParseError(format!("Expected 20 byte length array")))
-        }
+        Ok(Vec::<u8>::try_from(request_value)?.try_into()?)
     }
 }
 
@@ -127,44 +121,45 @@ pub fn parse_bytes_like(value: &str) -> Result<Vec<u8>> {
 }
 
 pub async fn handler(
-    State(evm): State<Evm>,
+    State(pool): State<PgPool>,
     extract::Json(request): extract::Json<JsonRpcRequest>,
 ) -> axum::response::Result<axum::Json<Value>> {
-    println!("{:?}", request);
+    // println!("{:?}", request);
     let params: Vec<ParamValue> = request.params.into_iter().map(ParamValue).collect();
     let result = match (request.method.as_ref(), params[..].as_ref()) {
         ("net_version", []) => version().await?,
-        ("eth_blockNumber", []) => block_number(evm).await?,
+        ("eth_blockNumber", []) => block_number(pool).await?,
         ("eth_call", [data]) => call(&data.try_into()?).await?,
         ("eth_chainId", []) => chain_id().await?,
         ("eth_estimateGas", [_params]) => estimate_gas().await?,
         ("eth_gasPrice", []) => gas_price().await?,
         ("eth_getBalance", [address, _block_identifier]) => {
-            get_balance(evm, address.try_into()?).await?
+            get_balance(pool, address.try_into()?).await?
         }
-        ("btc2_getTransactions", [address]) => get_transactions(evm, address.try_into()?).await?,
+        ("btc2_getTransactions", [address]) => get_transactions(pool, address.try_into()?).await?,
         ("eth_getBlockByHash", [block_hash, _include_full_transactions]) => {
-            get_block_by_hash(evm, block_hash.try_into()?).await?
+            get_block_by_hash(pool, block_hash.try_into()?).await?
         }
         ("eth_getBlockByNumber", [block_number, _include_full_transactions]) => {
-            get_block_by_number(evm, block_number.try_into()?).await?
+            get_block_by_number(pool, block_number.try_into()?).await?
         }
         ("eth_getCode", [block_hash]) => get_code(block_hash.try_into()?).await?,
         ("eth_getTransactionCount", [address, _block_number]) => {
-            get_transaction_count(evm, address.try_into()?).await?
+            get_transaction_count(pool, address.try_into()?).await?
         }
-        ("eth_getTransactionByHash", [block_hash]) => {
-            get_transaction_by_hash(block_hash.try_into()?).await?
+        ("eth_getTransactionByHash", [transaction_hash]) => {
+            println!("eth_getTransactionByHash");
+            get_transaction_by_hash(transaction_hash.try_into()?).await?
         }
         ("eth_getTransactionReceipt", [block_hash]) => {
             get_transaction_receipt(block_hash.try_into()?).await?
         }
         ("eth_sendRawTransaction", [raw_transaction]) => {
-            send_raw_transaction(evm, raw_transaction.try_into()?).await?
+            send_raw_transaction(pool, raw_transaction.try_into()?).await?
         }
-        _ => return Err(crate::error::Error::UnsupportedMethod(request.method.to_string()).into()), // Err(Error {
+        _ => return Err(Error::UnsupportedMethod(request.method.to_string()).into()), // Err(Error {
     };
-    println!("{:?}", &result);
+    // println!("{:?}", &result);
 
     Ok(axum::Json(json!({
     "jsonrpc": "2.0",

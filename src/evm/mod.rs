@@ -5,7 +5,7 @@ use crate::{
     constants::{SYSTEM_ADDRESS, UPGRADE_BY_MESSAGE},
     db::{
         deposit, get_balance, get_transaction_count, get_transaction_count_by_address,
-        get_transactions_by_address, get_transaction,
+        get_transactions_by_address,
     },
     error::{Error, Result},
 };
@@ -33,15 +33,15 @@ impl Evm {
         let db = self.db.lock().await;
         get_balance(&db.pool, address).await.ok()
     }
-    
-    pub async fn get_transaction(
-        &self,
-        block_number: Option<i64>,
-        hash: Option<[u8;32]>
-    ) -> Result<TransactionSigned> {
-        let db = self.db.lock().await;
-        Ok(get_transaction(&db.pool, block_number, hash).await?.1)
-    }
+
+    // pub async fn get_transaction(
+    //     &self,
+    //     block_number: Option<i64>,
+    //     hash: Option<[u8; 32]>,
+    // ) -> Result<TransactionSigned> {
+    //     let db = self.db.lock().await;
+    //     Ok(get_transaction(&db.pool, block_number, hash).await?.1)
+    // }
 
     pub async fn get_transactions_by_address(
         &self,
@@ -68,7 +68,7 @@ impl Evm {
         deposit(&db.pool, address, value).await.unwrap()
     }
 
-    pub async fn run_transaction(&self, signed_transaction: TransactionSigned) -> Result<i64> {
+    pub async fn run_transaction(&self, signed_transaction: &TransactionSigned) -> Result<i64> {
         let db = self.db.lock().await;
         let mut transaction =
             crate::db::Transaction::new(&db.pool.clone(), &signed_transaction).await?;

@@ -1,6 +1,8 @@
 use lazy_static::lazy_static;
-use sqlx::migrate::Migrator;
+use sqlx::{migrate::Migrator, types::time::PrimitiveDateTime};
+
 use std::env;
+use time::macros::datetime;
 
 macro_rules! account_id {
     ($last_byte:expr) => {{
@@ -11,8 +13,8 @@ macro_rules! account_id {
 }
 pub const LEGACY_ACCOUNT: [u8; 20] = account_id!(0);
 pub const DEFAULT_GAS_LIMIT: i64 = 21000;
-pub const LAST_LEGACY_BLOCK_TIMESTAMP: i64 = 1713557133;
-pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 83999;
+pub const LAST_LEGACY_BLOCK_TIMESTAMP: PrimitiveDateTime = datetime!(2024-04-19 08:05:33);
+pub const LAST_LEGACY_BLOCK_NUMBER: i64 = 839999;
 pub const CHAIN_ID: i64 = 178;
 pub const SYSTEM_ADDRESS: [u8; 20] = [0; 20];
 
