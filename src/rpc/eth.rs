@@ -23,11 +23,22 @@ pub async fn send_raw_transaction(pool: PgPool, raw_transaction: Vec<u8>) -> Res
             .map_err(Error::from)?;
 
     let evm: Evm = Evm::new(pool);
-    let _ = evm.run_transaction(&transaction).await;
+    evm.run_transaction(&transaction).await?;
 
     Ok(ResponseValue::Value(encode_bytes(
         &transaction.hash().to_vec(),
     )))
+}
+
+pub fn encode_u256(amount: U256) -> Value {
+    if amount == U256::ZERO {
+        json!("0x0")
+    } else {
+        json!(format!(
+            "0x{}",
+            hex::encode(amount.to_be_bytes_vec()).trim_start_matches('0')
+        ))
+    }
 }
 
 pub fn encode_amount(amount: BigUint) -> Value {
@@ -48,14 +59,17 @@ pub fn encode_bytes(bytes: &[u8]) -> Value {
 pub async fn get_transaction_by_hash(transaction_hash: [u8; 32]) -> Result<ResponseValue> {
     Ok(ResponseValue::Value(json!({
       "blockHash": encode_bytes(&transaction_hash),
+      "hash": encode_bytes(&transaction_hash),
       "blockNumber":"0x1",
       "cumulativeGasUsed": "0x0",
       "transactionIndex": "0x0",
       "effectiveGasPrice": "0x0",
+      "from": encode_bytes(&[0; 20]),
       "transactionHash": encode_bytes(&transaction_hash),
       "status":"0x1",
       "logs": [],
       "gasUsed":"0x0",
+      "gasLimit": "0x0"
     })))
 }
 
@@ -66,6 +80,7 @@ pub async fn get_transaction_receipt(transaction_hash: [u8; 32]) -> Result<Respo
       "cumulativeGasUsed": "0x0",
       "transactionIndex": "0x0",
       "effectiveGasPrice": "0x0",
+      "gasLimit": "0x0",
       "transactionHash": transaction_hash,
       "status":"0x1",
       "logs": [],

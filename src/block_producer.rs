@@ -52,7 +52,6 @@ async fn add_block(pool: PgPool) -> Result<()> {
 fn block_hash(signed_transations: Vec<TransactionSigned>) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for signed_transaction in signed_transations.iter() {
-        println!("hashing: {}", signed_transaction.hash());
         hasher.update(&signed_transaction.hash())
     }
     hasher.finalize().into()

@@ -8,7 +8,7 @@ pub enum Error {
     OutpointNotFound,
     #[error("Invalid Script")]
     InvalidScript,
-    #[error("Error")]
+    #[error("{0}")]
     Error(String),
     #[error("{0}")]
     IoError(String),

@@ -136,7 +136,7 @@ pub async fn handler(
         ("eth_getBalance", [address, _block_identifier]) => {
             get_balance(pool, address.try_into()?).await?
         }
-        ("btc2_getTransactions", [address]) => get_transactions(pool, address.try_into()?).await?,
+        ("btc2_getLedger", [address]) => get_transactions(pool, address.try_into()?).await?,
         ("eth_getBlockByHash", [block_hash, _include_full_transactions]) => {
             get_block_by_hash(pool, block_hash.try_into()?).await?
         }
@@ -148,7 +148,6 @@ pub async fn handler(
             get_transaction_count(pool, address.try_into()?).await?
         }
         ("eth_getTransactionByHash", [transaction_hash]) => {
-            println!("eth_getTransactionByHash");
             get_transaction_by_hash(transaction_hash.try_into()?).await?
         }
         ("eth_getTransactionReceipt", [block_hash]) => {

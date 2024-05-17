@@ -1,4 +1,4 @@
-use crate::{bitcoin_legacy, bitcoin_legacy::utxos, error::{Result}};
+use crate::{bitcoin_legacy, bitcoin_legacy::utxos, error::Result};
 use ethers_core::abi::ParamType;
 use k256::ecdsa::VerifyingKey;
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
@@ -9,7 +9,10 @@ pub struct UpgradeByMessage {
     action: String,
     #[serde(alias = "Destination Chain ID")]
     destination_chain_id: i64,
-    #[serde(alias = "Destination Address", deserialize_with = "from_0x_prefixed_hex")]
+    #[serde(
+        alias = "Destination Address",
+        deserialize_with = "from_0x_prefixed_hex"
+    )]
     destination_address: [u8; 20],
     #[serde(alias = "Inputs")]
     pub inputs: Vec<Outpoint>,
@@ -77,9 +80,16 @@ impl UpgradeByMessage {
             Err(crate::error::Error::Error("parse error".into()))
         }
     }
-    pub async fn validate(&self, unlocking_script: &[u8], destination_address: [u8; 20]) -> Result<i64> {
+    pub async fn validate(
+        &self,
+        unlocking_script: &[u8],
+        destination_address: [u8; 20],
+    ) -> Result<i64> {
         if self.destination_address != destination_address {
-            return Err(crate::error::Error::Error("Invalid destination address".to_string()));
+             
+            return Err(crate::error::Error::Error(
+                "Invalid destination address".to_string(),
+            ));
         };
 
         self.inputs

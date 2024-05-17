@@ -1,32 +1,25 @@
-use super::{encode_amount, encode_bytes, ResponseValue};
-use crate::{db, evm::SCALING_FACTOR};
+use super::{encode_bytes, ResponseValue};
+use crate::db;
 use axum::response::Result;
-use num_bigint::BigUint;
+
+use crate::{evm::scale_up, rpc::encode_u256};
 use serde_json::{json, Value};
-use num_traits::FromPrimitive;
+
 use sqlx::PgPool;
 
 pub async fn get_transactions(pool: PgPool, address: [u8; 20]) -> Result<ResponseValue> {
-    let transactions = db::get_transactions_by_address(&pool, address).await?;
+    let entries = db::get_ledger_by_address(&pool, address).await?;
     Ok(ResponseValue::Value(serde_json::Value::Array(
-        transactions
+        entries
             .into_iter()
-            .map(|signed_transaction|{
-                let to = if let Some(to) = signed_transaction.to() {
-                    encode_bytes(&to.to_vec())
-                }else {
-                    Value::Null};let from = if let Some(from) = signed_transaction.recover_signer() {
-                    encode_bytes(&from.to_vec())
-                }else {
-                    Value::Null
-                };
+            .map(|entry| {
                 json!(
                 {
-                    "to": to,
-                    "from": from,
-                    "value": encode_amount(BigUint::from_bytes_be(&signed_transaction.value().to_be_bytes_vec())* BigUint::from_i64(SCALING_FACTOR).unwrap()),
-                })}
-            )
+                    "creditor": encode_bytes(&entry.creditor),
+                    "debtor": encode_bytes(&entry.debtor),
+                    "value": encode_u256(scale_up(entry.value)),
+                })
+            })
             .collect::<Vec<Value>>(),
     )))
 }

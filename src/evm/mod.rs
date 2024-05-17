@@ -4,8 +4,7 @@ pub mod upgrade_by_message;
 use crate::{
     constants::{SYSTEM_ADDRESS, UPGRADE_BY_MESSAGE},
     db::{
-        Transaction, deposit, get_balance, get_transaction_count, get_transaction_count_by_address,
-        get_transactions_by_address,
+        deposit, get_balance, get_transaction_count, get_transaction_count_by_address, Transaction,
     },
     error::{Error, Result},
 };
@@ -43,14 +42,6 @@ impl Evm {
     //     Ok(get_transaction(&db.pool, block_number, hash).await?.1)
     // }
 
-    pub async fn get_transactions_by_address(
-        &self,
-        address: [u8; 20],
-    ) -> Result<Vec<TransactionSigned>> {
-        let db = self.db.lock().await;
-        get_transactions_by_address(&db.pool, address).await
-    }
-
     pub async fn get_transaction_count_by_address(&self, address: [u8; 20]) -> i64 {
         let db = self.db.lock().await;
         get_transaction_count_by_address(&db.pool, address)
@@ -70,7 +61,7 @@ impl Evm {
 
     pub async fn run_transaction(&self, signed_transaction: &TransactionSigned) -> Result<i64> {
         let db = self.db.lock().await;
-        
+
         let mut transaction = Transaction::new(&db.pool.clone(), &signed_transaction).await?;
         if signed_transaction.to() == Some(Address::from(SYSTEM_ADDRESS)) {
             self.run_system_transaction(&mut transaction, &signed_transaction)
@@ -106,35 +97,29 @@ impl Evm {
             Some(selector) if selector == UPGRADE_BY_MESSAGE => {
                 let (upgrade_by_message, signature, verifying_key) =
                     UpgradeByMessage::decode(&signed_transaction.transaction.input()[4..]).await?;
+                let signer = signed_transaction
+                .recover_signer()
+                .ok_or(Error::InvalidSignature)?
+                .to_vec()
+                .try_into()?;
                 let amount = upgrade_by_message
                     .validate(
                         &[signature.to_vec(), verifying_key.to_sec1_bytes().to_vec()].concat(),
-                        signed_transaction.recover_signer()
-                        .ok_or(Error::InvalidSignature)
-                        ?
-                        .to_vec()
-                        .try_into()
-                        ? 
+                        signer
                     )
                     .await?;
-                transaction
+                let _ = transaction
                     .upgrade(
                         upgrade_by_message.inputs,
-                        signed_transaction
-                            .recover_signer()
-                            .ok_or(Error::InvalidSignature)
-                            ?
-                            .to_vec()
-                            .try_into()
-                            ?,
+                        signer,
                         amount,
                     )
-                    .await?
+                    .await?;
+                println!("{} unlocked {} BTC2", hex::encode(signer), amount);
+                Ok::<(), Error>(())
             }
             _ => return Err(Error::FunctionNotFound),
-        };
-
-        Ok(())
+        }
     }
 }
 

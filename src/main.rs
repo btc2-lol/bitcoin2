@@ -3,11 +3,10 @@ use bitcoin2::{
     constants::{Env, ENV, LETS_ENCRYPT_DOMAINS, LETS_ENCRYPT_EMAILS, MIGRATOR, PORT},
 };
 use dotenv::dotenv;
-use rustls_acme::{AcmeConfig,caches::DirCache};
+use rustls_acme::{caches::DirCache, AcmeConfig};
 use sqlx::postgres::PgPoolOptions;
-use std::{env, net::Ipv6Addr};
+use std::{env, net::Ipv6Addr, path::PathBuf};
 use tokio::spawn;
-use std::path::PathBuf;
 use tokio_stream::StreamExt;
 
 #[tokio::main]
@@ -15,12 +14,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new().connect(&database_url).await?;
-    // bitcoin2::db::deposit(
-    //     &pool,
-    //     hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
-    //     100000000,
-    // )
-    // .await;
 
     MIGRATOR.run(&pool).await?;
 

@@ -18,15 +18,17 @@ CREATE TABLE transactions(
   block_number BIGINT REFERENCES blocks(number) ON DELETE RESTRICT,
   nonce BIGINT NOT NULL,
   gas_price BIGINT NOT NULL,
+  _to BYTEA CHECK (octet_length(_to) = 20 OR _to IS NULL),
+  value BIGINT NOT NULL,
   input BYTEA, 
   signature BYTEA 
 );
 
-CREATE TABLE entries(
+CREATE TABLE ledger(
   id BIGSERIAL PRIMARY KEY, 
   transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
-  to_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
-  from_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+  debtor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT, 
+  creditor_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
   value BIGINT NOT NULL
 );
 
@@ -41,49 +43,49 @@ CREATE TABLE spent_legacy_outputs(
 
 CREATE 
 OR REPLACE FUNCTION validate_entry() RETURNS TRIGGER AS $$ BEGIN
-    IF (SELECT balance FROM accounts WHERE id = NEW.from_id) < NEW.value THEN RAISE EXCEPTION 'Insufficient funds in the to_id account.';
+    IF (SELECT balance FROM accounts WHERE id = NEW.creditor_id) < NEW.value THEN RAISE EXCEPTION 'Insufficient funds in the debtor_id account.';
 END IF;
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER validate_before_insert BEFORE INSERT ON entries FOR EACH ROW EXECUTE FUNCTION validate_entry();
+CREATE TRIGGER validate_before_insert BEFORE INSERT ON ledger FOR EACH ROW EXECUTE FUNCTION validate_entry();
 
 CREATE OR REPLACE FUNCTION update_account_balances() RETURNS TRIGGER AS $$ BEGIN 
 UPDATE accounts SET balance = balance + NEW.value 
 WHERE 
-  accounts.id = NEW.to_id;
+  accounts.id = NEW.debtor_id;
 UPDATE accounts SET balance = balance - NEW.value 
 WHERE 
-  accounts.id = NEW.from_id;
+  accounts.id = NEW.creditor_id;
 RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER update_balances_after_insert 
 AFTER 
-  INSERT ON entries FOR EACH ROW EXECUTE FUNCTION update_account_balances();
+  INSERT ON ledger FOR EACH ROW EXECUTE FUNCTION update_account_balances();
 
 CREATE OR REPLACE PROCEDURE transfer(transaction_id BIGINT, from_account BYTEA, to_account BYTEA, transfer_value BIGINT)
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    from_id BIGINT;
-    to_id BIGINT;
+    creditor_id BIGINT;
+    debtor_id BIGINT;
 BEGIN
-    SELECT id INTO from_id FROM accounts WHERE address = from_account;
+    SELECT id INTO creditor_id FROM accounts WHERE address = from_account;
 
     IF NOT FOUND THEN
-        INSERT INTO accounts (address, balance) VALUES (from_account, 0) RETURNING id INTO from_id;
+        INSERT INTO accounts (address, balance) VALUES (from_account, 0) RETURNING id INTO creditor_id;
     END IF;
 
-    SELECT id INTO to_id FROM accounts WHERE address = to_account;
+    SELECT id INTO debtor_id FROM accounts WHERE address = to_account;
 
     IF NOT FOUND THEN
-        INSERT INTO accounts (address, balance) VALUES (to_account, 0) RETURNING id INTO to_id;
+        INSERT INTO accounts (address, balance) VALUES (to_account, 0) RETURNING id INTO debtor_id;
     END IF;
 
 
-    INSERT INTO entries (transaction_id, from_id, to_id, value)
-    VALUES (transaction_id, from_id, to_id, transfer_value);
+    INSERT INTO ledger (transaction_id, creditor_id, debtor_id, value)
+    VALUES (transaction_id, creditor_id, debtor_id, transfer_value);
 END;
 $$;
 

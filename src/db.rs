@@ -4,7 +4,7 @@ use crate::{
         LEGACY_ACCOUNT,
     },
     error::{Error, Result},
-    evm::{scale_up, upgrade_by_message::Outpoint, TransactionSigned},
+    evm::{scale_down, scale_up, upgrade_by_message::Outpoint, TransactionSigned},
 };
 use reth_primitives::{Address, Signature, TxKind, TxLegacy};
 pub use sqlx::FromRow;
@@ -126,16 +126,15 @@ where
 {
     let query = "
         SELECT transactions.*,
-        entries.*,
-        accounts_to.address as to_address,
-        accounts_from.address as from_address
+        ledger.*,
+        accounts_debtor.address as debtor_address,
+        accounts_creditor.address as creditor_address
         FROM transactions 
-        JOIN entries ON transactions.id = entries.transaction_id
-        JOIN accounts accounts_to ON entries.to_id = accounts_to.id
-        JOIN accounts accounts_from ON entries.from_id = accounts_from.id
+        JOIN ledger ON transactions.id = ledger.transaction_id
+        JOIN accounts accounts_debtor ON ledger.debtor_id = accounts_debtor.id
+        JOIN accounts accounts_creditor ON ledger.creditor_id = accounts_creditor.id
         WHERE transactions.id = $1
     ";
-
 
     let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
         .bind(transaction_id)
@@ -151,16 +150,15 @@ where
 {
     let query = "
         SELECT transactions.*,
-        entries.*,
-        accounts_to.address as to_address,
-        accounts_from.address as from_address
+        ledger.*,
+        accounts_debtor.address as debtor_address,
+        accounts_creditor.address as creditor_address
         FROM transactions 
-        JOIN entries ON transactions.id = entries.transaction_id
-        JOIN accounts accounts_to ON entries.to_id = accounts_to.id
-        JOIN accounts accounts_from ON entries.from_id = accounts_from.id
+        JOIN ledger ON transactions.id = ledger.transaction_id
+        JOIN accounts accounts_debtor ON ledger.debtor_id = accounts_debtor.id
+        JOIN accounts accounts_creditor ON ledger.creditor_id = accounts_creditor.id
         WHERE hash = $1
     ";
-
 
     let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
         .bind(hash)
@@ -178,16 +176,8 @@ where
     E: Executor<'a, Database = Postgres>,
 {
     let mut builder: QueryBuilder<'_, Postgres> = QueryBuilder::new(
-        "SELECT transactions.*,
-        entries.*,
-        accounts_to.address as to_address,
-        accounts_from.address as from_address
+        "SELECT transactions.*
         FROM transactions 
-        JOIN entries ON transactions.id = entries.transaction_id
-        JOIN 
-            accounts accounts_to ON entries.to_id = accounts_to.id
-        JOIN 
-            accounts accounts_from ON entries.from_id = accounts_from.id
         ",
     );
 
@@ -204,7 +194,7 @@ where
 pub struct TransactionSignedRow(pub i64, pub TransactionSigned);
 impl FromRow<'_, PgRow> for TransactionSignedRow {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
-        let to = if let Some(to) = row.get::<Option<Vec<u8>>, _>("to_address") {
+        let to = if let Some(to) = row.get::<Option<Vec<u8>>, _>("_to") {
             TxKind::Call(Address::new(to.try_into().unwrap()))
         } else {
             TxKind::Create
@@ -229,34 +219,47 @@ impl FromRow<'_, PgRow> for TransactionSignedRow {
         ))
     }
 }
+pub struct LedgerEntry {
+    pub creditor: [u8; 20],
+    pub debtor: [u8; 20],
+    pub value: i64,
+}
 
-pub async fn get_transactions_by_address<'a, E>(
-    pool: E,
-    address: [u8; 20],
-) -> Result<Vec<TransactionSigned>>
+impl FromRow<'_, PgRow> for LedgerEntry {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            creditor: row
+                .get::<Vec<u8>, _>("creditor_address")
+                .try_into()
+                .unwrap(),
+            debtor: row.get::<Vec<u8>, _>("debtor_address").try_into().unwrap(),
+            value: row.get("value"),
+        })
+    }
+}
+
+pub async fn get_ledger_by_address<'a, E>(pool: E, address: [u8; 20]) -> Result<Vec<LedgerEntry>>
 where
     E: Executor<'a, Database = Postgres>,
 {
-    
-    println!("get_transactions_by_address");
-    let transactions: Vec<TransactionSignedRow> = query_as(
-        "SELECT transactions.*,
-        entries.*,
-        accounts_to.address as to_address,
-        accounts_from.address as from_address
+    let entries: Vec<LedgerEntry> = query_as(
+        "SELECT
+        accounts_debtor.address as debtor_address,
+        accounts_creditor.address as creditor_address,
+        ledger.value
         from
-         entries
-        join transactions on entries.transaction_id = transactions.id
-        join accounts accounts_from on entries.from_id = accounts_from.id
-        join accounts accounts_to on entries.to_id = accounts_to.id
+         ledger
+        join transactions on ledger.transaction_id = transactions.id
+        join accounts accounts_creditor on ledger.creditor_id = accounts_creditor.id
+        join accounts accounts_debtor on ledger.debtor_id = accounts_debtor.id
 
-       where $1 IN (accounts_from.address, accounts_to.address);"
+       where $1 IN (accounts_creditor.address, accounts_debtor.address);",
     )
     .bind(address)
     .fetch_all(pool)
     .await?
     .into();
-    Ok(transactions.into_iter().map(|t| t.1).collect())
+    Ok(entries)
 }
 
 pub async fn deposit<E>(pool: E, account: [u8; 20], starting_balance: i64) -> Result<()>
@@ -291,11 +294,14 @@ pub async fn insert_transaction<'a, E: Executor<'a, Database = Postgres>>(
 ) -> Result<i64> {
     let mut signature = Vec::new();
     signed_transaction.signature().encode(&mut signature);
-    let record = query("INSERT INTO transactions (hash, account_id, nonce, gas_price, input, signature) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id")
+    let record = query("INSERT INTO transactions (hash, account_id, nonce, gas_price, _to, value, input, signature) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id")
+
         .bind(signed_transaction.hash().to_vec())
         .bind(account_id)
         .bind(signed_transaction.transaction.nonce() as i64)
         .bind(signed_transaction.transaction.max_fee_per_gas() as i64)
+        .bind(signed_transaction.transaction.to().map(|to| to.to_vec()))
+        .bind(scale_down(signed_transaction.transaction.value()))
         .bind(signed_transaction.transaction.input().to_vec())
         .bind(signature)
         .fetch_one(e)
@@ -361,25 +367,34 @@ pub async fn get_transaction_count<'a, E: Executor<'a, Database = Postgres>>(
 mod tests {
     use super::*;
     use sqlx::PgPool;
-    const ALICE: [u8; 20] = [0; 20]; 
-    const BOB: [u8; 20] = [1; 20]; 
 
     #[sqlx::test]
-    async fn get_transactions_by_address(pool: PgPool) -> sqlx::Result<()> {
-        deposit(
+    async fn get_transactions_by_block(pool: PgPool) -> sqlx::Result<()> {
+        let _ = deposit(
             &pool,
             hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
             100000000,
         )
         .await;
-        let transaction_signed = TransactionSigned::decode_rlp_legacy_transaction(&mut &hex::decode("f8690180825208943073ac44aa1b95f2fe71bb2eb36b9ce27892f8ee8806f05b59d3b20000808201b9a0d95066012c1af3689ac24030b965a81211b506022d4db117bf90b4a22ccaf981a03c818c75f0634ee921cbcb290371c5e14e76768db4f18900753dbcce651978eb").unwrap()[..]).unwrap();
-        let mut transaction = Transaction::new(&pool,
-            &transaction_signed 
-        ).await.unwrap();
-        transaction.transfer(hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(), hex_lit::hex!("3073ac44aA1b95f2fe71Bb2eb36b9CE27892F8ee").into(), 1).await.unwrap();
-        transaction.commit().await.unwrap(); 
+        let transaction_signed = TransactionSigned::decode_rlp_legacy_transaction(&mut &hex::decode("f8698080825208943073ac44aa1b95f2fe71bb2eb36b9ce27892f8ee8806f05b59d3b2000080820188a0db848c751522df8fb1d9c317f344b40251bc73c6db7a4d8dfadf929f1c21e21aa01a4203287ae5b0a3f1c98e79e08b49cc5dafd6d96e5845b6d403250e1461a851").unwrap()[..]).unwrap();
+        let mut transaction = Transaction::new(&pool, &transaction_signed).await.unwrap();
+        transaction
+            .transfer(
+                hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
+                hex_lit::hex!("3073ac44aA1b95f2fe71Bb2eb36b9CE27892F8ee").into(),
+                50000000,
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
 
-        assert_eq!(super::get_transactions_by_address(&pool, hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into()).await.unwrap().len(), 1);
+        assert_eq!(
+            super::get_transactions_by_block_number(&pool, None)
+                .await
+                .unwrap()[0]
+                .1,
+            transaction_signed
+        );
 
         Ok(())
     }
