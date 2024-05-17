@@ -2,4 +2,4 @@ INSERT INTO accounts (address, balance) values (
     '\x0000000000000000000000000000000000000000'::BYTEA,
     196329751666
 );
-ALTER SEQUENCE blocks_number_seq RESTART 84000;
+ALTER SEQUENCE blocks_number_seq RESTART 840000;

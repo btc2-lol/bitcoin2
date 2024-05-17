@@ -47,7 +47,7 @@ pub fn encode_bytes(bytes: &[u8]) -> Value {
 
 pub async fn get_transaction_by_hash(transaction_hash: [u8; 32]) -> Result<ResponseValue> {
     Ok(ResponseValue::Value(json!({
-      "blockHash":"0x0000000000000000000000000000000000000000000000000000000000000001",
+      "blockHash": encode_bytes(&transaction_hash),
       "blockNumber":"0x1",
       "cumulativeGasUsed": "0x0",
       "transactionIndex": "0x0",
@@ -59,14 +59,14 @@ pub async fn get_transaction_by_hash(transaction_hash: [u8; 32]) -> Result<Respo
     })))
 }
 
-pub async fn get_transaction_receipt(block_hash: [u8; 32]) -> Result<ResponseValue> {
+pub async fn get_transaction_receipt(transaction_hash: [u8; 32]) -> Result<ResponseValue> {
     Ok(ResponseValue::Value(json!({
-      "blockHash":"0x0000000000000000000000000000000000000000000000000000000000000001",
+      "blockHash":encode_bytes(&transaction_hash),
       "blockNumber":"0x1",
       "cumulativeGasUsed": "0x0",
       "transactionIndex": "0x0",
       "effectiveGasPrice": "0x0",
-      "transactionHash": block_hash,
+      "transactionHash": transaction_hash,
       "status":"0x1",
       "logs": [],
       "gasUsed":"0x0",
@@ -85,7 +85,7 @@ pub async fn get_block_by_number(pool: PgPool, block_number: i64) -> Result<Resp
         db::get_transaction_by_id(&pool, block_number).await
     {
         Ok(ResponseValue::Value(json!({
-           "hash": encode_bytes(&[0; 32]),
+           "hash": encode_bytes(&transaction.hash().to_vec()),
             "parentHash":encode_bytes(&[0; 32].to_vec()),
             "number": encode_amount(0u32.into()),
             "miner": encode_bytes(&[0; 32].to_vec()),

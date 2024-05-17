@@ -3,11 +3,11 @@ use crate::{db, evm::SCALING_FACTOR};
 use axum::response::Result;
 use num_bigint::BigUint;
 use serde_json::{json, Value};
+use num_traits::FromPrimitive;
 use sqlx::PgPool;
 
 pub async fn get_transactions(pool: PgPool, address: [u8; 20]) -> Result<ResponseValue> {
     let transactions = db::get_transactions_by_address(&pool, address).await?;
-
     Ok(ResponseValue::Value(serde_json::Value::Array(
         transactions
             .into_iter()
@@ -24,7 +24,7 @@ pub async fn get_transactions(pool: PgPool, address: [u8; 20]) -> Result<Respons
                 {
                     "to": to,
                     "from": from,
-                    "value": encode_amount(BigUint::from(u128::from_be_bytes(signed_transaction.value().to_be_bytes())* SCALING_FACTOR as u128)),
+                    "value": encode_amount(BigUint::from_bytes_be(&signed_transaction.value().to_be_bytes_vec())* BigUint::from_i64(SCALING_FACTOR).unwrap()),
                 })}
             )
             .collect::<Vec<Value>>(),

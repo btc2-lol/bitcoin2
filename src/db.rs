@@ -136,7 +136,6 @@ where
         WHERE transactions.id = $1
     ";
 
-    println!("{}", query);
 
     let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
         .bind(transaction_id)
@@ -162,7 +161,6 @@ where
         WHERE hash = $1
     ";
 
-    println!("{}", query);
 
     let transaction_signed_row = query_as::<_, TransactionSignedRow>(query)
         .bind(hash)
@@ -239,17 +237,20 @@ pub async fn get_transactions_by_address<'a, E>(
 where
     E: Executor<'a, Database = Postgres>,
 {
+    
+    println!("get_transactions_by_address");
     let transactions: Vec<TransactionSignedRow> = query_as(
-        "select
-            transactions.*
-        from transactions
-        join accounts on transactions.account_id = accounts.id
-        join entries
-        on transactions.account_id = entries.creditor_id
-         or transactions.account_id = entries.debtor_id
+        "SELECT transactions.*,
+        entries.*,
+        accounts_to.address as to_address,
+        accounts_from.address as from_address
+        from
+         entries
+        join transactions on entries.transaction_id = transactions.id
+        join accounts accounts_from on entries.from_id = accounts_from.id
+        join accounts accounts_to on entries.to_id = accounts_to.id
 
-       where accounts.address = $1;
-        ",
+       where $1 IN (accounts_from.address, accounts_to.address);"
     )
     .bind(address)
     .fetch_all(pool)
@@ -354,4 +355,32 @@ pub async fn get_transaction_count<'a, E: Executor<'a, Database = Postgres>>(
         .fetch_one(pool)
         .await?
         .get(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::PgPool;
+    const ALICE: [u8; 20] = [0; 20]; 
+    const BOB: [u8; 20] = [1; 20]; 
+
+    #[sqlx::test]
+    async fn get_transactions_by_address(pool: PgPool) -> sqlx::Result<()> {
+        deposit(
+            &pool,
+            hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(),
+            100000000,
+        )
+        .await;
+        let transaction_signed = TransactionSigned::decode_rlp_legacy_transaction(&mut &hex::decode("f8690180825208943073ac44aa1b95f2fe71bb2eb36b9ce27892f8ee8806f05b59d3b20000808201b9a0d95066012c1af3689ac24030b965a81211b506022d4db117bf90b4a22ccaf981a03c818c75f0634ee921cbcb290371c5e14e76768db4f18900753dbcce651978eb").unwrap()[..]).unwrap();
+        let mut transaction = Transaction::new(&pool,
+            &transaction_signed 
+        ).await.unwrap();
+        transaction.transfer(hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into(), hex_lit::hex!("3073ac44aA1b95f2fe71Bb2eb36b9CE27892F8ee").into(), 1).await.unwrap();
+        transaction.commit().await.unwrap(); 
+
+        assert_eq!(super::get_transactions_by_address(&pool, hex_lit::hex!("f204ee5596cabc6ec60e5e92fd412ea7f856b625").into()).await.unwrap().len(), 1);
+
+        Ok(())
+    }
 }
