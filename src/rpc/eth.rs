@@ -8,6 +8,7 @@ use crate::{
     evm::{scale_up, Evm},
 };
 use axum::response::Result;
+use crate::rpc::BlockTag;
 use num_bigint::BigUint;
 use num_traits::Zero;
 use reth_primitives::U256;
@@ -69,7 +70,13 @@ pub async fn get_transaction_by_hash(transaction_hash: [u8; 32]) -> Result<Respo
       "status":"0x1",
       "logs": [],
       "gasUsed":"0x0",
-      "gasLimit": "0x0"
+      "gasLimit": "0x0",
+      "value": "0x0",
+      "input": "0x",
+      "nonce": "0x0",
+      "v": "0x0",
+      "r": encode_bytes(&[0; 32]),
+      "s": encode_bytes(&[0; 32]),
     })))
 }
 
@@ -81,7 +88,7 @@ pub async fn get_transaction_receipt(transaction_hash: [u8; 32]) -> Result<Respo
       "transactionIndex": "0x0",
       "effectiveGasPrice": "0x0",
       "gasLimit": "0x0",
-      "transactionHash": transaction_hash,
+      "transactionHash": encode_bytes(&transaction_hash),
       "status":"0x1",
       "logs": [],
       "gasUsed":"0x0",
@@ -95,7 +102,12 @@ pub async fn get_transaction_count(pool: PgPool, address: [u8; 20]) -> Result<Re
 pub async fn get_code(_block_hash: [u8; 20]) -> Result<ResponseValue> {
     Ok(ResponseValue::Value(json!("0x")))
 }
-pub async fn get_block_by_number(pool: PgPool, block_number: i64) -> Result<ResponseValue> {
+pub async fn get_block_by_number(pool: PgPool, block_tag: BlockTag) -> Result<ResponseValue> {
+    let block_number = if let BlockTag::Number(block_number) = block_tag {
+        block_number
+    } else {
+        db::get_transaction_count(&pool).await.unwrap_or(0)
+    };
     if let Ok(TransactionSignedRow(_, transaction)) =
         db::get_transaction_by_id(&pool, block_number).await
     {
@@ -103,11 +115,12 @@ pub async fn get_block_by_number(pool: PgPool, block_number: i64) -> Result<Resp
            "hash": encode_bytes(&transaction.hash().to_vec()),
             "parentHash":encode_bytes(&[0; 32].to_vec()),
             "number": encode_amount(0u32.into()),
-            "miner": encode_bytes(&[0; 32].to_vec()),
+            "miner": encode_bytes(&[0; 20].to_vec()),
             "extraData": encode_bytes(&vec![]),
             "gasLimit": encode_amount(0u32.into()),
             "gasUsed": encode_amount(0u32.into()),
             "timestamp": encode_amount(0u32.into()),
+            "difficulty": encode_amount(0u32.into()),
             "transactions": vec![encode_bytes(&transaction.hash().to_vec())],
         })))
     } else {
@@ -116,7 +129,7 @@ pub async fn get_block_by_number(pool: PgPool, block_number: i64) -> Result<Resp
            "hash": encode_bytes(&[0; 32]),
             "parentHash":encode_bytes(&[0; 32].to_vec()),
             "number": encode_amount(0u32.into()),
-            "miner": encode_bytes(&[0; 32].to_vec()),
+            "miner": encode_bytes(&[0; 20].to_vec()),
             "extraData": encode_bytes(&vec![]),
             "gasLimit": encode_amount(0u32.into()),
             "gasUsed": encode_amount(0u32.into()),
@@ -157,6 +170,10 @@ pub async fn get_block_by_hash(pool: PgPool, block_hash: [u8; 32]) -> Result<Res
 }
 
 pub async fn gas_price() -> Result<ResponseValue> {
+    Ok(ResponseValue::Number(U256::from::<u64>(0)))
+}
+
+pub async fn max_priority_fee_per_gas() -> Result<ResponseValue> {
     Ok(ResponseValue::Number(U256::from::<u64>(0)))
 }
 

@@ -72,10 +72,43 @@ impl TryFrom<&ParamValue> for i64 {
         if let Value::String(string) = &request_value.0 {
             Ok(parse_i64(string)?)
         } else {
-            Err(Error::ParseError(format!("Expected 20 byte length array")))
+            Err(Error::ParseError(format!("Expected i64")))
         }
     }
 }
+#[derive(Debug)]
+enum BlockTag {
+    Latest,
+    Earliest,
+    Pending,
+    Safe,
+    Finalized,
+    Number(i64),
+}
+impl TryFrom<&ParamValue> for BlockTag {
+    type Error = Error;
+
+    fn try_from(request_value: &ParamValue) -> Result<Self> {
+        if let Value::String(string) = &request_value.0 {
+            match string.as_str() {
+                "latest" => Ok(Self::Latest),
+                "earliest" => Ok(Self::Earliest),
+                "pending" => Ok(Self::Pending),
+                "safe" => Ok(Self::Safe),
+                "finalized" => Ok(Self::Finalized),
+                s if s.starts_with("0x") => {
+                    // Use the existing implementation to convert the hexadecimal string to i64
+                    let number = i64::try_from(request_value)?;
+                    Ok(Self::Number(number))
+                },
+                _ => Err(Error::ParseError(format!("Invalid block number format or string"))),
+            }
+        } else {
+            Err(Error::ParseError(format!("Expected a string for block number")))
+        }
+    }
+}
+
 impl TryFrom<&ParamValue> for [u8; 32] {
     type Error = Error;
 
@@ -155,6 +188,9 @@ pub async fn handler(
         }
         ("eth_sendRawTransaction", [raw_transaction]) => {
             send_raw_transaction(pool, raw_transaction.try_into()?).await?
+        }
+        ("eth_maxPriorityFeePerGas", []) => {
+            max_priority_fee_per_gas().await?
         }
         _ => return Err(Error::UnsupportedMethod(request.method.to_string()).into()), // Err(Error {
     };
